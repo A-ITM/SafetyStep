@@ -1,0 +1,17 @@
+.DS_Store
+.idea/
+.gradle/
+.kotlin/
+**/build/
+**/local.properties
+**/developer.properties
+.env
+.env.*
+!.env.example
+*.jks
+*.keystore
+*.apk
+*.aab
+supabase/.temp/
+supabase/.branches/
+node_modules/

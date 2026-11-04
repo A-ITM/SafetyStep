@@ -1,0 +1,27 @@
+[versions]
+agp = "8.8.2"
+kotlin = "2.0.21"
+core = "1.15.0"
+activity = "1.10.1"
+lifecycle = "2.8.7"
+compose = "2024.12.01"
+coroutines = "1.9.0"
+vehicle = "2.3.2"
+navi = "3.0.5"
+
+[libraries]
+androidx-core = { module = "androidx.core:core-ktx", version.ref = "core" }
+androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "activity" }
+androidx-lifecycle-runtime-compose = { module = "androidx.lifecycle:lifecycle-runtime-compose", version.ref = "lifecycle" }
+androidx-lifecycle-viewmodel-compose = { module = "androidx.lifecycle:lifecycle-viewmodel-compose", version.ref = "lifecycle" }
+androidx-compose-bom = { module = "androidx.compose:compose-bom", version.ref = "compose" }
+androidx-compose-ui = { module = "androidx.compose.ui:ui" }
+androidx-compose-material3 = { module = "androidx.compose.material3:material3" }
+kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutines" }
+pleos-vehicle = { module = "ai.pleos.playground:Vehicle", version.ref = "vehicle" }
+pleos-navi = { module = "ai.pleos.playground:NaviHelper", version.ref = "navi" }
+
+[plugins]
+android-application = { id = "com.android.application", version.ref = "agp" }
+kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
+kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }

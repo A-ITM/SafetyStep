@@ -1,0 +1,8 @@
+project_id = "pleos-app"
+
+# A public liveness probe only. It reads no data and calls no paid APIs.
+# Do not reuse this authorization setting for application endpoints.
+[functions.health]
+enabled = true
+verify_jwt = false
+entrypoint = "./functions/health/index.ts"

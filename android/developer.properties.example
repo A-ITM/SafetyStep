@@ -1,0 +1,3 @@
+# Copy to developer.properties (gitignored). Empty values keep the app offline.
+# Public project URL only. Never add secret/service_role/database credentials.
+SUPABASE_URL=
