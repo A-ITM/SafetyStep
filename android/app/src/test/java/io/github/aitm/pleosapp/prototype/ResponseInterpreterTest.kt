@@ -1,0 +1,22 @@
+package io.github.aitm.pleosapp.prototype
+import io.github.aitm.pleosapp.speech.ResponseInterpreter
+import org.junit.Assert.*
+import org.junit.Test
+class ResponseInterpreterTest {
+    @Test fun helpAndNegationTakePriority() {
+        for (text in listOf("저는 운전자예요. 움직일 수 없어요.", "못 움직여요. 도와주세요", "움직일 수 있어요. 아니요 도와주세요")) {
+            assertEquals(text, HelpState.NEEDS_HELP, ResponseInterpreter.interpret(text).help)
+        }
+        for (text in listOf("움직일 수 있는지 모르겠어요", "움직일 수 있을 것 같아요", "괜찮아요", "잘 모르겠어요", "도움이 필요하지 않아요")) {
+            assertEquals(text, HelpState.UNKNOWN, ResponseInterpreter.interpret(text).help)
+        }
+    }
+    @Test fun roleAndExplicitMobilityAreIndependent() {
+        val a=ResponseInterpreter.interpret("동승자예요. 움직일 수 있어요.")
+        assertEquals(Responder.PASSENGER,a.responder);assertEquals(HelpState.CAN_MOVE,a.help)
+        val b=ResponseInterpreter.interpret("네, 들려요")
+        assertTrue(b.acknowledged);assertEquals(Responder.UNKNOWN,b.responder);assertEquals(HelpState.UNKNOWN,b.help)
+        assertFalse(ResponseInterpreter.interpret("운전자가 아닌데요").acknowledged)
+        assertEquals(HelpState.UNKNOWN,ResponseInterpreter.interpret("움직일 수 있어요? 모르겠어요").help)
+    }
+}
