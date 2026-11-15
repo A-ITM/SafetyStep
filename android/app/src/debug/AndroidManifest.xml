@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <queries>
+        <package android:name="ai.umos.ambientai" />
+        <intent><action android:name="ai.pleos.playground.intent.action.APP_ACTION_RESPONSE" /></intent>
+    </queries>
+    <application android:networkSecurityConfig="@xml/prototype_network_security">
+        <activity android:name=".MainActivity" android:launchMode="singleTop" android:exported="true">
+            <intent-filter>
+                <action android:name="${applicationId}.START_ROADSIDE_SUPPORT" />
+                <action android:name="${applicationId}.REPORT_OCCUPANT_STATUS" />
+                <action android:name="${applicationId}.GET_ROADSIDE_STATUS" />
+                <!-- Keep the original explicit ADB contract for local test compatibility. -->
+                <action android:name="START_ROADSIDE_SUPPORT" />
+                <action android:name="REPORT_OCCUPANT_STATUS" />
+                <action android:name="GET_ROADSIDE_STATUS" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

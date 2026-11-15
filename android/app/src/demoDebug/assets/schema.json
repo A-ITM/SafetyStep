@@ -1,0 +1,67 @@
+{
+  "packageName": "io.github.aitm.pleosapp.demo",
+  "appDescription": "The receiving vehicle B in a highway hazard warning prototype. Separate from the primary Beatbox Mate roadside assistance app.",
+  "invokeWord": "세이프티스탭 데모",
+  "version": "0.2.0-prototype",
+  "actionCalls": [
+    {
+      "type": "function",
+      "function": {
+        "name": "START_ROADSIDE_SUPPORT",
+        "description": "Start a simulated local roadside incident in the receiving vehicle B test app (세이프티스탭 데모). Does not call emergency services.",
+        "component": "activity",
+        "parameters": {
+          "type": "object",
+          "properties": {},
+          "required": []
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "REPORT_OCCUPANT_STATUS",
+        "description": "Record a simulated occupant role and self-reported need for help in the receiving vehicle B test app (세이프티스탭 데모). Requires an active local incident.",
+        "component": "activity",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "responder": {
+              "type": "string",
+              "description": "Role of the responding occupant.",
+              "enum": [
+                "DRIVER",
+                "PASSENGER"
+              ]
+            },
+            "help": {
+              "type": "string",
+              "description": "Whether the occupant reports needing assistance.",
+              "enum": [
+                "CAN_MOVE",
+                "NEEDS_HELP"
+              ]
+            }
+          },
+          "required": [
+            "responder",
+            "help"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "GET_ROADSIDE_STATUS",
+        "description": "Get the simulated local roadside support status from the receiving vehicle B test app (세이프티스탭 데모), without claiming emergency dispatch.",
+        "component": "activity",
+        "parameters": {
+          "type": "object",
+          "properties": {},
+          "required": []
+        }
+      }
+    }
+  ]
+}

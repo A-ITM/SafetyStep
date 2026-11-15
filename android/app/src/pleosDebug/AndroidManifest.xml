@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="pleos.car.permission.CONTROL_CAR_DOORS" />
+    <uses-permission android:name="pleos.car.permission.CONTROL_CAR_LIGHTS" />
+    <uses-permission android:name="pleos.car.permission.TTS_SERVICE" />
+    <uses-permission android:name="pleos.car.permission.STT_SERVICE" />
+    <application>
+        <activity
+            android:name=".speech.SpeechProbeActivity"
+            android:exported="true"
+            android:label="세이프티스탭 음성 진단 (에뮬레이터)" />
+        <activity
+            android:name=".speech.GleoLaunchProbeActivity"
+            android:exported="true"
+            android:label="Gleo 실행 진단 (에뮬레이터)" />
+    </application>
+</manifest>

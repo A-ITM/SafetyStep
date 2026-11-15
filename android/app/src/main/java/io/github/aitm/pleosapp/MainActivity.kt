@@ -1,77 +1,110 @@
 package io.github.aitm.pleosapp
 
+import android.content.Intent
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.IntentFilter
+import androidx.core.content.ContextCompat
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
+import androidx.activity.viewModels
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.material3.lightColorScheme
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewmodel.compose.viewModel
+import io.github.aitm.pleosapp.prototype.*
+import io.github.aitm.pleosapp.ui.SafetyStepApp
 
 class MainActivity : ComponentActivity() {
+    private val model: PrototypeViewModel by viewModels()
+    private val operatorReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) { model.operatorAction(intent) }
+    }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent {
-            MaterialTheme(colorScheme = lightColorScheme(primary = Color(0xFF173B66))) {
-                SetupScreen()
-            }
-        }
+        if (BuildConfig.DEBUG) ContextCompat.registerReceiver(this, operatorReceiver,
+            IntentFilter("$packageName.OPERATOR"), ContextCompat.RECEIVER_EXPORTED)
+        if (savedInstanceState == null) { model.operatorAction(intent); model.gleoAction(intent) }
+        setContent { SafetyStepApp(model) { PrototypeScreen(model) } }
     }
+    override fun onDestroy() {
+        if (BuildConfig.DEBUG) runCatching { unregisterReceiver(operatorReceiver) }
+        super.onDestroy()
+    }
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        model.operatorAction(intent)
+        model.gleoAction(intent)
+    }
+    override fun onStart() { super.onStart(); model.setForeground(true) }
+    override fun onPause() { model.pauseVoice(); super.onPause() }
+    override fun onStop() { model.setForeground(false); super.onStop() }
 }
 
 @Composable
-private fun SetupScreen(model: SetupViewModel = viewModel()) {
-    val state by model.state.collectAsStateWithLifecycle()
-    Scaffold { padding ->
-        Column(
-            modifier = Modifier.fillMaxSize().padding(padding)
-                .verticalScroll(rememberScrollState()).padding(24.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            Text("A+ ITM", style = MaterialTheme.typography.headlineLarge)
-            Text("개발 환경 점검 · ${BuildConfig.FLAVOR}", style = MaterialTheme.typography.titleLarge)
-            Text("개발용 화면입니다. 정차된 테스트 환경에서 사용해 주세요.")
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("차량 데이터", style = MaterialTheme.typography.titleLarge)
-                    Text(model.sourceLabel)
-                    if (BuildConfig.FLAVOR == "pleos") {
-                        Text("Vehicle ${BuildConfig.VEHICLE_SDK_VERSION} · NaviHelper ${BuildConfig.NAVI_SDK_VERSION}")
-                        Text("NaviHelper는 의존성만 준비되어 있습니다.")
-                    }
-                    Text(state.vehicleMessage)
-                    Button(onClick = model::readVehicle, enabled = !state.readingVehicle) {
-                        Text(if (state.readingVehicle) "조회 중…" else "운전석 문 상태 조회")
-                    }
+private fun PrototypeScreen(model: PrototypeViewModel) {
+    val s by model.state.collectAsStateWithLifecycle()
+    Scaffold { inset ->
+        Column(Modifier.fillMaxSize().padding(inset).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("세이프티스탭 · 기술 진단 / 차량 ${model.owner}", style = MaterialTheme.typography.headlineSmall)
+            Text("정차된 에뮬레이터 테스트 전용 · 도로와 위치는 모의 데이터 · 실제 긴급 신고 없음")
+            if (!BuildConfig.DEBUG) { Text("프로토타입 실행은 debug 빌드에서만 지원합니다."); return@Column }
+            Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("1. 사고 차량 · 응답 상태", style = MaterialTheme.typography.titleLarge)
+                    Text("사건: ${s.incident?.id?.take(8) ?: "없음"} / 출처: ${s.incident?.source ?: "-"}")
+                    Text("응답: ${s.incident?.response ?: ResponseState.IDLE} / ${s.incident?.responder ?: Responder.UNKNOWN}")
+                    Text("도움: ${s.incident?.help ?: HelpState.UNKNOWN} / 대피 보고: ${s.incident?.evacuated ?: false}")
+                    Text("도로 위험: ${s.incident?.hazard ?: "없음"} / 응답 타이머: ${s.timerRunning}")
+                    Row { Checkbox(s.consent, model::setConsent); Text("모의 사건 위치를 로컬 서버에 공유") }
+                    Button(onClick = { model.begin() }) { Text("사고·고장 주입 (모의)") }
+                    Button(onClick = model::startResponseTimer, enabled = s.incident != null) { Text("모의 질문 · 15초 응답 대기") }
+                    Text("제 말이 들리면 답해주세요. 운전자/동승자와 도움 필요 여부를 선택합니다.")
+                    Button(onClick = { model.respond(Responder.DRIVER, HelpState.CAN_MOVE) }, enabled = s.incident != null) { Text("운전자 응답 · 행동 가능") }
+                    Button(onClick = { model.respond(Responder.DRIVER, HelpState.NEEDS_HELP) }, enabled = s.incident != null) { Text("운전자 응답 · 도움 필요") }
+                    Button(onClick = { model.respond(Responder.PASSENGER, HelpState.NEEDS_HELP) }, enabled = s.incident != null) { Text("동승자 응답 · 도움 필요") }
+                    Button(onClick = model::voiceFailure, enabled = s.incident != null) { Text("음성 장애 주입") }
+                    Button(onClick = model::interrupt) { Text("긴급 통화 중단 모의") }
+                    Button(onClick = model::evacuate, enabled = s.incident != null) { Text("대피 보고 (위험 유지)") }
+                    Button(onClick = model::resolve, enabled = s.incident?.hazard == HazardState.ACTIVE) { Text("테스트 사건 해제") }
+                    Text("도움이 필요하면 기존 긴급 통화 경로를 우선합니다. 대피 보고는 도로 위험 해제가 아닙니다.")
                 }
-            }
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("Supabase 연결", style = MaterialTheme.typography.titleLarge)
-                    Text(
-                        if (model.backendConfigured) state.backendMessage
-                        else "미설정 · 프로젝트 연결 없이 차량 앱을 개발할 수 있습니다.",
-                    )
-                    Button(
-                        onClick = model::checkBackend,
-                        enabled = model.backendConfigured && !state.checkingBackend,
-                    ) { Text(if (state.checkingBackend) "확인 중…" else "서버 연결 확인") }
+                Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("2. SDK · Gleo 검증", style = MaterialTheme.typography.titleLarge)
+                    Text(model.sourceLabel)
+                    Button(onClick = model::checkSdk, enabled = !s.sdkBusy) { Text(if (s.sdkBusy) "SDK 조회 중" else "SDK 조회 · 에어백 구독") }
+                    Text(s.sdk)
+                    Text(s.airbag)
+                    Text("초기 전개=true는 새 사고로 전파하지 않습니다. false → true 변화만 새 사건 후보로 처리합니다.")
+                    Text("트렁크 실행은 지원 화면에서 상황·주변 조건 확인 후 요청합니다.")
+                    Text(s.trunk)
+                    HorizontalDivider()
+                    Text("Gleo 연동", style = MaterialTheme.typography.titleMedium)
+                    Text(s.gleo)
+                    Text("현재 버튼 응답은 모의 입력입니다. Gleo Intent 수신과 실제 음성 인식·선제 대화는 별도 검증입니다.")
+                    Text("중단·앱 복귀 시 사건 상태를 복원합니다. 미실행 앱의 자동 기동과 백그라운드 보호는 미검증입니다.")
+                }
+                Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("3. 접근 차량 · 실제 HTTP", style = MaterialTheme.typography.titleLarge)
+                    Text(s.network)
+                    Text("전송 대기 ${s.pending}개 · 서버 127.0.0.1:8787 (adb reverse)")
+                    Row { Checkbox(s.online, model::setOnline); Text("로컬 서버 통신 허용") }
+                    Text("모의 도로 test-highway / 사고 1000m / 수신 차량 600m·25m/s")
+                    listOf("approach" to "같은 방향 접근", "opposite" to "반대 방향", "parallel" to "평행도로", "passed" to "사고 지점 통과", "stale" to "위치 만료").forEach { (value, label) ->
+                        OutlinedButton(onClick = { model.scenario(value) }, enabled = s.receiverScenario != value) { Text(label) }
+                    }
+                    if (s.warnings.isEmpty()) Text("현재 경고 대상 없음 · 도로 안전 확인을 뜻하지 않음")
+                    s.warnings.forEach { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.titleMedium) }
+                    s.received.forEach { Text(it) }
+                    HorizontalDivider()
+                    Text("최근 이벤트", style = MaterialTheme.typography.titleMedium)
+                    s.logs.take(10).forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
                 }
             }
         }

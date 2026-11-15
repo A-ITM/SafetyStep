@@ -15,3 +15,6 @@
 supabase/.temp/
 supabase/.branches/
 node_modules/
+__pycache__/
+*.py[cod]
+output/

@@ -8,6 +8,7 @@ compose = "2024.12.01"
 coroutines = "1.9.0"
 vehicle = "2.3.2"
 navi = "3.0.5"
+speech = "3.3.1"
 
 [libraries]
 androidx-core = { module = "androidx.core:core-ktx", version.ref = "core" }
@@ -20,6 +21,8 @@ androidx-compose-material3 = { module = "androidx.compose.material3:material3" }
 kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutines" }
 pleos-vehicle = { module = "ai.pleos.playground:Vehicle", version.ref = "vehicle" }
 pleos-navi = { module = "ai.pleos.playground:NaviHelper", version.ref = "navi" }
+pleos-tts = { module = "ai.pleos.playground:TextToSpeech", version.ref = "speech" }
+pleos-stt = { module = "ai.pleos.playground:SpeechToText", version.ref = "speech" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

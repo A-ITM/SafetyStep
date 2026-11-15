@@ -15,4 +15,4 @@ if [[ -z "${JAVA_HOME:-}" || ! -x "${JAVA_HOME}/bin/java" ]]; then
   exit 1
 fi
 cd "${repo_dir}/android"
-exec ./gradlew --no-daemon lintDemoDebug lintPleosDebug assembleDemoDebug assemblePleosDebug "$@"
+exec ./gradlew --no-daemon testDemoDebugUnitTest testPleosDebugUnitTest lintDemoDebug lintPleosDebug assembleDemoDebug assemblePleosDebug "$@"

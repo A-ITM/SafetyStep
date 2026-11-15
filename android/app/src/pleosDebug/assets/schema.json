@@ -1,0 +1,67 @@
+{
+  "packageName": "io.github.aitm.pleosapp",
+  "appDescription": "SafetyStep (세이프티스탭), the primary roadside support app for vehicle A. Records occupant responses and shares simulated highway hazards.",
+  "invokeWord": "세이프티스탭",
+  "version": "0.2.0-prototype",
+  "actionCalls": [
+    {
+      "type": "function",
+      "function": {
+        "name": "START_ROADSIDE_SUPPORT",
+        "description": "Start roadside support in SafetyStep (세이프티스탭), the primary app for vehicle A, when a user reports an accident or breakdown. Creates a local incident and asks for the occupant's reported status. Does not call emergency services.",
+        "component": "activity",
+        "parameters": {
+          "type": "object",
+          "properties": {},
+          "required": []
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "REPORT_OCCUPANT_STATUS",
+        "description": "Record the responding occupant's role and self-reported need for help in SafetyStep (세이프티스탭), the primary app for vehicle A. Requires an active local roadside incident; does not assess medical consciousness or contact emergency services.",
+        "component": "activity",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "responder": {
+              "type": "string",
+              "description": "Role of the responding occupant.",
+              "enum": [
+                "DRIVER",
+                "PASSENGER"
+              ]
+            },
+            "help": {
+              "type": "string",
+              "description": "Whether the occupant reports needing assistance.",
+              "enum": [
+                "CAN_MOVE",
+                "NEEDS_HELP"
+              ]
+            }
+          },
+          "required": [
+            "responder",
+            "help"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "GET_ROADSIDE_STATUS",
+        "description": "Get the current local roadside support status from SafetyStep (세이프티스탭), the primary app for vehicle A. Reports recorded responses and evacuation status, without claiming emergency dispatch.",
+        "component": "activity",
+        "parameters": {
+          "type": "object",
+          "properties": {},
+          "required": []
+        }
+      }
+    }
+  ]
+}

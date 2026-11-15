@@ -1,5 +1,8 @@
 # 개발 환경
 
+현재 기술 프로토타입 실행과 검증은 [prototype.md](prototype.md)를 따릅니다.
+아래는 초기 환경 구성 기록이며, 현재 화면과 기능 범위는 프로토타입 문서가 우선합니다.
+
 확인일: 2026-11-04 (KST)
 
 ## 빌드 버전
@@ -24,8 +27,8 @@ Kotlin은 2.0.21로 고정했습니다. 공식 샘플의 minSdk 23 대신 공모
 
 ```sh
 export JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home
-export GRADLE_USER_HOME=/Users/yeongj/.gradle
-export ANDROID_HOME=/Users/yeongj/Library/Android/sdk
+export GRADLE_USER_HOME=$HOME/.gradle
+export ANDROID_HOME=$HOME/Library/Android/sdk
 ```
 
 새 JDK를 설치하거나 작업별 Gradle home을 만들지 않습니다. 다른 팀원의 OS에서는 기존 JDK 17과 Android SDK 경로를 사용합니다.
