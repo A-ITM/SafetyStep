@@ -3,7 +3,7 @@
 - Keep vehicle access in the Android app behind `VehicleGateway`.
 - Keep the `demo` flavor runnable without Pleos services or backend credentials. Label sample data explicitly.
 - The `pleos` flavor must report SDK errors and unavailable capabilities; never substitute sample data silently.
-- Add only permissions needed by implemented features. The starter reads door state and never controls the vehicle.
+- Add only permissions needed by implemented features. Vehicle control in the technical prototype is restricted to explicit requests in debug emulator builds; never actuate a physical vehicle.
 - Keep shared backend code in `supabase/`. Add database schemas and user authentication when product requirements are defined.
 - Never put secret/service-role keys, database passwords, or external API secrets in the Android app. Mobile configuration is public even when injected during the build.
 - Verify Android changes with `./scripts/check-android.sh`. Validate Edge Functions with Deno format/lint/type checks.
