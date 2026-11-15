@@ -4,8 +4,8 @@
 
 현재 **0.5.0-safetystep**은 에뮬레이터에서 기능과 분기를 검증하는 버전입니다. 실제 사고 대응용 배포 앱이나 기획 전체의 완성본이 아닙니다.
 
-- GitHub: [A-ITM/pleos-app](https://github.com/A-ITM/pleos-app)
-- 현재 구현: [codex/secondary-accident-prototype](https://github.com/A-ITM/pleos-app/tree/codex/secondary-accident-prototype)
+- GitHub: [A-ITM/SafetyStep](https://github.com/A-ITM/SafetyStep)
+- 현재 구현: [codex/secondary-accident-prototype](https://github.com/A-ITM/SafetyStep/tree/codex/secondary-accident-prototype)
 - [자동 대응 계획](docs/safetystep-automatic-plan.md) · [검수 결과](docs/safetystep-automatic-validation.md) · [콘솔 실행·재현 안내](tools/operator-console/README.md)
 
 ## 보여주는 시나리오
@@ -72,8 +72,8 @@ flowchart LR
 Android Studio에서 `android/`를 열고 기존 JDK 17, Android SDK Platform 35·Build Tools 35.0.0을 지정합니다. `demoDebug`는 일반 Android에서 샘플 값으로 실행하고, `pleosDebug`는 Pleos 전용 에뮬레이터에서 실행합니다. [환경 설치 안내](docs/development.md)를 참고하세요.
 
 ```sh
-git clone https://github.com/A-ITM/pleos-app.git
-cd pleos-app
+git clone https://github.com/A-ITM/SafetyStep.git
+cd SafetyStep
 git switch codex/secondary-accident-prototype
 ./scripts/check-android.sh
 ```
