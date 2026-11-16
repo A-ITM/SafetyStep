@@ -14,8 +14,14 @@ object ResponseInterpreter {
             listOf("운전자예요", "운전자에요", "운전자입니다", "운전자야").any(t::contains) -> Responder.DRIVER
             else -> Responder.UNKNOWN
         }
-        val need = listOf("움직일수없", "못움직", "움직이지못", "도와주", "살려주", "일어날수없").any(t::contains) ||
-            ("도움이필요" in t && "필요없" !in t && "필요하지않" !in t)
+        val cannotMove = listOf("움직일수없", "움직일수가없", "못움직", "움직이지못", "일어날수없", "일어날수가없").any(t::contains)
+        val negatedRequest = listOf("도와주지마", "도와주지말", "도와주지않", "살려주지마", "살려주지말", "살려주지않",
+            "도와줄필요없", "도와줄필요가없", "도와줄필요는없", "도와주실필요없", "도와주실필요가없", "도와주실필요는없").any(t::contains)
+        // Korean contractions (줘) and uncontracted requests (주세요) are distinct spellings.
+        val requestedHelp = !negatedRequest && listOf("도와줘", "도와주", "살려줘", "살려주").any(t::contains)
+        val statedNeed = listOf("도움이필요", "도움필요", "도움이좀필요", "도움좀필요").any(t::contains) &&
+            listOf("필요없", "필요는없", "필요가없", "필요하지않", "필요하지는않", "필요하지도않", "필요치않", "필요한건아니", "필요한것은아니").none(t::contains)
+        val need = cannotMove || requestedHelp || statedNeed
         val uncertain = listOf("없", "않", "못", "아니", "모르", "겠", "같", "힘들", "어렵").any(t::contains)
         val canMove = !uncertain && listOf("움직일수있어요", "움직일수있습니다", "움직일수있어", "걸을수있어요", "걸을수있습니다").any(t::contains)
         val help = when { need -> HelpState.NEEDS_HELP; canMove -> HelpState.CAN_MOVE; else -> HelpState.UNKNOWN }
