@@ -1,0 +1,183 @@
+{
+  "contractVersion": 1,
+  "clockNow": 1800000010000,
+  "create": {
+    "id": "test-stop-001",
+    "owner": "A",
+    "version": 1,
+    "eventType": "STOPPED_VEHICLE",
+    "status": "ACTIVE",
+    "source": "STOP_OBSERVATION",
+    "simulation": true,
+    "observedAt": 1800000005000,
+    "expiresAt": 1800000185000,
+    "road": "test-highway",
+    "direction": "east",
+    "meters": 1000.0
+  },
+  "retract": {
+    "expectedVersion": 1,
+    "evidence": {
+      "source": "TEST",
+      "startedAt": 1800000008000,
+      "observedAt": 1800000011000,
+      "speedMps": 2.5,
+      "durationMs": 3000
+    }
+  },
+  "resolve": {
+    "expectedVersion": 1,
+    "reason": "CONTROLLED_TEST"
+  },
+  "query": {
+    "requestId": "poll-001",
+    "road": "test-highway",
+    "direction": "east",
+    "meters": 600,
+    "speedMps": 25,
+    "observedAt": 1800000010000
+  },
+  "snapshot": {
+    "requestId": "poll-001",
+    "epoch": "fixture-epoch-1",
+    "scopeKey": "v1:test-highway:east",
+    "scopeVersion": 1,
+    "serverNow": 1800000010000,
+    "complete": true,
+    "sourceHealth": "TEST_ONLY",
+    "events": [
+      {
+        "id": "test-stop-001",
+        "owner": "A",
+        "version": 1,
+        "eventType": "STOPPED_VEHICLE",
+        "status": "ACTIVE",
+        "source": "STOP_OBSERVATION",
+        "simulation": true,
+        "observedAt": 1800000005000,
+        "expiresAt": 1800000185000,
+        "road": "test-highway",
+        "direction": "east",
+        "meters": 1000.0
+      }
+    ]
+  },
+  "emptySnapshot": {
+    "requestId": "poll-001",
+    "epoch": "fixture-epoch-1",
+    "scopeKey": "v1:test-highway:east",
+    "scopeVersion": 1,
+    "serverNow": 1800000010000,
+    "complete": true,
+    "sourceHealth": "TEST_ONLY",
+    "events": []
+  },
+  "staleSnapshot": {
+    "requestId": "poll-001",
+    "epoch": "fixture-epoch-1",
+    "scopeKey": "v1:test-highway:east",
+    "scopeVersion": 1,
+    "serverNow": 1800000190000,
+    "complete": true,
+    "sourceHealth": "TEST_ONLY",
+    "events": [
+      {
+        "id": "test-stop-001",
+        "owner": "A",
+        "version": 1,
+        "eventType": "STOPPED_VEHICLE",
+        "status": "ACTIVE",
+        "source": "STOP_OBSERVATION",
+        "simulation": true,
+        "observedAt": 1800000005000,
+        "expiresAt": 1800000185000,
+        "road": "test-highway",
+        "direction": "east",
+        "meters": 1000.0
+      }
+    ]
+  },
+  "retractedSnapshot": {
+    "requestId": "poll-001",
+    "epoch": "fixture-epoch-1",
+    "scopeKey": "v1:test-highway:east",
+    "scopeVersion": 1,
+    "serverNow": 1800000011000,
+    "complete": true,
+    "sourceHealth": "TEST_ONLY",
+    "events": [
+      {
+        "id": "test-stop-001",
+        "owner": "A",
+        "version": 2,
+        "eventType": "STOPPED_VEHICLE",
+        "status": "RETRACTED",
+        "source": "STOP_OBSERVATION",
+        "simulation": true,
+        "observedAt": 1800000005000,
+        "expiresAt": 1800000185000,
+        "road": "test-highway",
+        "direction": "east",
+        "meters": 1000.0
+      }
+    ]
+  },
+  "incompleteSnapshot": {
+    "requestId": "poll-001",
+    "epoch": "fixture-epoch-1",
+    "scopeKey": "v1:test-highway:east",
+    "scopeVersion": 1,
+    "serverNow": 1800000010000,
+    "complete": false,
+    "sourceHealth": "TEST_ONLY",
+    "events": [
+      {
+        "id": "test-stop-001",
+        "owner": "A",
+        "version": 1,
+        "eventType": "STOPPED_VEHICLE",
+        "status": "ACTIVE",
+        "source": "STOP_OBSERVATION",
+        "simulation": true,
+        "observedAt": 1800000005000,
+        "expiresAt": 1800000185000,
+        "road": "test-highway",
+        "direction": "east",
+        "meters": 1000.0
+      }
+    ]
+  },
+  "versionError": {
+    "error": {
+      "code": "VERSION_CONFLICT",
+      "message": "Conflicting command"
+    }
+  },
+  "staleQuery": {
+    "requestId": "poll-001",
+    "road": "test-highway",
+    "direction": "east",
+    "meters": 600,
+    "speedMps": 25,
+    "observedAt": 1800000190000
+  },
+  "retractAck": {
+    "accepted": true,
+    "duplicate": false,
+    "event": {
+      "id": "test-stop-001",
+      "owner": "A",
+      "version": 2,
+      "eventType": "STOPPED_VEHICLE",
+      "status": "RETRACTED",
+      "source": "STOP_OBSERVATION",
+      "simulation": true,
+      "observedAt": 1800000005000,
+      "expiresAt": 1800000185000,
+      "road": "test-highway",
+      "direction": "east",
+      "meters": 1000.0
+    }
+  },
+  "staleClockNow": 1800000190000
+}

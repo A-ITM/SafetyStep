@@ -1,159 +1,193 @@
 #!/usr/bin/env python3
-"""Exercise the installed debug apps on a parked Pleos emulator, using real HTTP.
+"""Exercise the frozen TEST contract over actual loopback HTTP, without adb.
 
-Requires the local server on 8787 and both APKs installed. Creates synthetic
-incidents, changes only the prototype's state, and leaves vehicle B open.
+Start a fresh local server first. --base-url permits an isolated port; every run
+uses unique IDs and leaves its small synthetic dataset in that server process.
+Clock-advanced retry and 200-record capacity cases live in the Deno unit suite.
 """
+import argparse
 import json
-import os
 from pathlib import Path
-import re
-import subprocess
 import time
+import urllib.error
+import urllib.parse
 import urllib.request
-import xml.etree.ElementTree as ET
+import uuid
+
 
 ROOT = Path(__file__).resolve().parents[1]
-OUT = ROOT / "android/app/build/prototype-smoke"
-OUT.mkdir(parents=True, exist_ok=True)
-ADB = str(Path(os.environ.get("ANDROID_HOME", str(Path.home() / "Library/Android/sdk"))) / "platform-tools/adb")
-A = "io.github.aitm.pleosapp"
-B = A + ".demo"
-ACTIVITY = A + ".MainActivity"
-checks = []
+FIXTURE = json.loads((ROOT / "docs/contracts/fixtures/prototype-v06.json").read_text())
+TTL_MS = 180_000
 
-def adb(*args):
-    return subprocess.check_output([ADB, *map(str, args)], text=True)
 
-USER = adb("shell", "am", "get-current-user").strip()
-assert adb("shell", "getprop", "ro.hardware").strip() in ("ranchu", "goldfish"), "Emulator only"
+def now_ms():
+    return time.time_ns() // 1_000_000
 
-def launch(package):
-    adb("shell", "am", "start", "--user", USER, "-n", f"{package}/{ACTIVITY}")
 
-def nodes():
-    adb("shell", "uiautomator", "dump", "/sdcard/prototype-smoke.xml")
-    return list(ET.fromstring(adb("exec-out", "cat", "/sdcard/prototype-smoke.xml")).iter("node"))
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--base-url", default="http://127.0.0.1:8787")
+    parser.add_argument("--output", type=Path, help="Optional local JSON results file")
+    args = parser.parse_args()
+    address = urllib.parse.urlsplit(args.base_url)
+    if (address.scheme != "http" or address.hostname != "127.0.0.1"
+            or address.username or address.password or address.path not in ("", "/")
+            or address.query or address.fragment):
+        parser.error("--base-url must be http://127.0.0.1[:port]")
+    base_url = args.base_url.rstrip("/")
+    run_id = "smoke-" + uuid.uuid4().hex[:12]
+    checks = []
+    request_count = 0
 
-def text():
-    return "\n".join(n.get("text", "") for n in nodes())
+    def http(method, path, body=None, identity="A", status=200, code=None):
+        nonlocal request_count
+        headers = {"Content-Type": "application/json"}
+        if identity is not None:
+            headers["Authorization"] = ("Bearer prototype-test-admin" if identity == "ADMIN"
+                                        else f"Bearer prototype-vehicle-{identity}")
+        payload = None if body is None else json.dumps(body, allow_nan=False).encode()
+        request = urllib.request.Request(base_url + path, data=payload, headers=headers, method=method)
+        request_count += 1
+        try:
+            response = urllib.request.urlopen(request, timeout=3)
+        except urllib.error.HTTPError as error:
+            response = error
+        with response:
+            assert response.status == status, f"{method} {path}: expected {status}, got {response.status}"
+            assert response.headers.get("Cache-Control") == "no-store"
+            assert response.headers.get_content_type() == "application/json"
+            result = json.load(response)
+        if code:
+            assert set(result) == {"error"}
+            assert set(result["error"]) == {"code", "message"}
+            assert result["error"]["code"] == code and isinstance(result["error"]["message"], str)
+        return result
 
-def wait_for(needle, timeout=15):
-    deadline = time.monotonic() + timeout
-    latest = ""
-    while time.monotonic() < deadline:
-        latest = text()
-        if needle in latest:
-            return latest
-        time.sleep(0.3)
-    raise AssertionError(f"UI missing {needle!r}: {latest}")
+    def passed(message):
+        checks.append(message)
+        print("PASS", message, flush=True)
 
-def tap(label):
-    matches = [n for n in nodes() if n.get("text") == label]
-    assert len(matches) == 1, f"Expected exactly one visible {label}: {len(matches)}"
-    x1, y1, x2, y2 = map(int, re.findall(r"\d+", matches[0].get("bounds")))
-    adb("shell", "input", "tap", (x1+x2)//2, (y1+y2)//2)
+    def create(suffix, **changes):
+        observed = now_ms() - 5000
+        return {**FIXTURE["create"], "id": f"{run_id}-{suffix}",
+                "observedAt": observed, "expiresAt": observed + TTL_MS, **changes}
 
-def consent():
-    checkbox = [n for n in nodes() if n.get("class") == "android.widget.CheckBox"][0]
-    if checkbox.get("checked") != "true":
-        x1,y1,x2,y2=map(int,re.findall(r"\d+",checkbox.get("bounds")))
-        adb("shell", "input", "tap", (x1+x2)//2, (y1+y2)//2)
+    def query(**changes):
+        fields = {**FIXTURE["query"], "requestId": f"{run_id}-poll", "observedAt": now_ms(), **changes}
+        return "/prototype/incidents?" + urllib.parse.urlencode({key: value for key, value in fields.items() if value is not None})
 
-def feed():
-    request = urllib.request.Request("http://127.0.0.1:8787/prototype/incidents", headers={"Authorization":"Bearer prototype-vehicle-B"})
-    with urllib.request.urlopen(request, timeout=3) as response:
-        return json.load(response)["events"]
+    def snapshot(**changes):
+        path = query(**changes)
+        result = http("GET", path, identity="B")
+        fields = dict(urllib.parse.parse_qsl(urllib.parse.urlsplit(path).query))
+        assert set(result) == set(FIXTURE["snapshot"])
+        assert result["requestId"] == fields["requestId"]
+        assert result["epoch"] == epoch
+        assert result["scopeKey"] == f"v1:{fields['road']}:{fields['direction']}"
+        assert result["scopeVersion"] == 1 and result["complete"] is True
+        assert result["sourceHealth"] == "TEST_ONLY" and isinstance(result["serverNow"], int)
+        for event in result["events"]:
+            assert set(event) == set(FIXTURE["create"])
+            assert event["simulation"] is True
+            assert event["road"] == fields["road"] and event["direction"] == fields["direction"]
+            assert 0 < event["meters"] - float(fields["meters"]) <= 1000
+        return result
 
-def snapshot(name):
-    (OUT/f"{name}.png").write_bytes(subprocess.check_output([ADB,"exec-out","screencap","-p"]))
-    (OUT/f"{name}.xml").write_text(adb("exec-out","cat","/sdcard/prototype-smoke.xml"))
+    def ack(path, command, event, identity="A", duplicate=False, status=200):
+        result = http("POST", path, command, identity=identity, status=status)
+        assert result == {"accepted": True, "duplicate": duplicate, "event": event}
+        return result
 
-def passed(name):
-    checks.append(name)
-    print("PASS", name, flush=True)
+    health = http("GET", "/health", identity=None)
+    assert health["status"] == "ok" and health["mode"] == "local-simulation"
+    epoch = health["epoch"]
+    assert isinstance(epoch, str) and epoch
+    collection = "/prototype/incidents"
+    stop = create("stop")
+    ack(collection, stop, stop, status=201)
+    ack(collection, stop, stop, duplicate=True)
+    http("POST", collection, {**stop, "meters": 999}, status=409, code="VERSION_CONFLICT")
+    http("POST", collection, {**stop, "eventType": "ACCIDENT"}, status=409, code="VERSION_CONFLICT")
+    http("POST", collection, {**stop, "owner": "B"}, identity="B", status=403, code="FORBIDDEN")
+    passed("Actual HTTP create, exact retry and immutable owner/type/position")
 
-try:
-    adb("reverse", "tcp:8787", "tcp:8787")
-    launch(A)
-    wait_for("차량 A")
-    consent()
-    current = text()
-    if "도로 위험: ACTIVE" in current:
-        tap("테스트 사건 해제")
-        wait_for("대기 0개")
-    tap("사고·고장 주입 (모의)")
-    wait_for("서버 ACK")
-    event = max((e for e in feed() if e["owner"] == "A" and e["status"] == "ACTIVE"), key=lambda e:e["observedAt"])
-    incident_id = event["id"]
-    tap("사고·고장 주입 (모의)")
-    assert len([e for e in feed() if e["id"] == incident_id]) == 1
-    passed("A creates one event and receives real server ACK; duplicate start is ignored")
+    boundary = create("boundary", meters=1600)
+    far = create("far", meters=1600.1)
+    at_point = create("at", meters=600)
+    west = create("west", direction="west")
+    for event in (boundary, far, at_point, west):
+        ack(collection, event, event, status=201)
+    own_ids = {event["id"] for event in (stop, boundary, far, at_point, west)}
+    received = snapshot()
+    assert {event["id"] for event in received["events"]} & own_ids == {stop["id"], boundary["id"]}
+    assert snapshot(road="parallel-highway")["events"] == []
+    assert {event["id"] for event in snapshot(direction="west")["events"]} & own_ids == {west["id"]}
+    assert stop["id"] not in {event["id"] for event in snapshot(meters=1000)["events"]}
+    assert stop["id"] in {event["id"] for event in snapshot(speedMps=None)["events"]}
+    assert stop["id"] in {event["id"] for event in snapshot(speedMps=0)["events"]}
+    passed("Complete scoped HTTP snapshots filter direction, parallel road, passed and 1000m boundary; unknown speed works")
 
-    tap("모의 질문 · 15초 응답 대기")
-    wait_for("응답: UNCONFIRMED", timeout=40)
-    passed("Two 15-second test waits produce UNCONFIRMED, not a medical diagnosis")
-    tap("동승자 응답 · 도움 필요")
-    wait_for("RESPONDED / PASSENGER")
-    tap("대피 보고 (위험 유지)")
-    wait_for("대피 보고: true")
-    assert next(e for e in feed() if e["id"] == incident_id)["status"] == "ACTIVE"
-    assert not any(k in event for k in ("response","help","voice","responder","evacuated"))
-    passed("Late passenger response and evacuation leave the shared hazard active; no health fields transmitted")
-    adb("shell", "am", "force-stop", "--user", USER, A)
-    launch(A)
-    wait_for("RESPONDED / PASSENGER")
-    wait_for("대피 보고: true")
-    snapshot("a-restored")
-    passed("Incident and occupant state survive process restart")
+    for path, status, code in ((collection, 400, "INVALID_REQUEST"),
+                               (query() + "&road=test-highway", 400, "INVALID_REQUEST"),
+                               (query(extra=1), 400, "INVALID_REQUEST"),
+                               (query(meters="NaN"), 422, "INVALID_POSITION"),
+                               (query(speedMps=""), 422, "INVALID_POSITION"),
+                               (query(observedAt=now_ms() - 16000), 422, "INVALID_POSITION")):
+        http("GET", path, identity="B", status=status, code=code)
+    http("GET", query(), identity=None, status=401, code="TEST_IDENTITY_REQUIRED")
+    http("GET", query(), identity="ADMIN", status=403, code="FORBIDDEN")
+    http("DELETE", collection, status=405, code="METHOD_NOT_ALLOWED")
+    http("POST", collection, {**create("invalid"), "help": "NEEDS_HELP"}, status=400, code="INVALID_REQUEST")
+    http("POST", collection, create("array-type", eventType=["STOPPED_VEHICLE"]), status=400, code="INVALID_REQUEST")
+    passed("Actual HTTP rejects malformed queries/payloads, missing identity and wrong methods with typed errors")
 
-    launch(B)
-    wait_for("차량 B")
-    tap("같은 방향 접근") if "DIFFERENT_DIRECTION" in text() else None
-    wait_for("전방 400m 위험")
-    snapshot("b-warning")
-    for label, decision in [("반대 방향","DIFFERENT_DIRECTION"),("평행도로","DIFFERENT_ROAD"),("사고 지점 통과","PASSED"),("위치 만료","INVALID_POSITION")]:
-        tap(label)
-        current = wait_for(decision)
-        assert "현재 경고 대상 없음" in current
-    passed("B warns for approach and excludes opposite direction, parallel road, passed point and stale position")
-    tap("같은 방향 접근")
-    wait_for("전방 400m 위험")
+    observed = now_ms()
+    retract = {**FIXTURE["retract"], "evidence": {**FIXTURE["retract"]["evidence"],
+                                                "startedAt": observed - 3000, "observedAt": observed}}
+    retract_path = f"{collection}/{stop['id']}/retract"
+    http("POST", retract_path, retract, identity="B", status=403, code="FORBIDDEN")
+    http("POST", retract_path, {**retract, "evidence": {**retract["evidence"], "speedMps": 1}}, status=400, code="INVALID_REQUEST")
+    terminal = {**stop, "version": 2, "status": "RETRACTED"}
+    ack(retract_path, retract, terminal)
+    ack(retract_path, retract, terminal, duplicate=True)
+    http("POST", retract_path, {**retract, "expectedVersion": 2}, status=409, code="VERSION_CONFLICT")
+    http("POST", collection, terminal, status=409, code="VERSION_CONFLICT")
+    result = snapshot()
+    assert next(event for event in result["events"] if event["id"] == stop["id"]) == terminal
+    assert next(event for event in result["events"] if event["id"] == boundary["id"])["status"] == "ACTIVE"
+    assert stop["id"] not in {event["id"] for event in snapshot(meters=1000)["events"]}
+    passed("Owner-only evidence retraction is idempotent, scoped and preserves unrelated hazards")
 
-    launch(A)
-    wait_for("차량 A")
-    adb("reverse", "--remove", "tcp:8787")
-    wait_for("전파/수신 미확인")
-    tap("테스트 사건 해제")
-    wait_for("전송 대기 1개")
-    assert next(e for e in feed() if e["id"] == incident_id)["status"] == "ACTIVE"
-    adb("shell", "am", "force-stop", "--user", USER, A)
-    launch(A)
-    wait_for("전송 대기 1개")
-    snapshot("a-offline-outbox")
-    passed("Actual network loss does not claim ACK; pending resolution survives process restart")
-    adb("reverse", "tcp:8787", "tcp:8787")
-    wait_for("전송 대기 0개")
-    assert next(e for e in feed() if e["id"] == incident_id)["status"] == "RESOLVED"
-    launch(B)
-    current = wait_for("RESOLVED → RESOLVED")
-    assert "현재 경고 대상 없음" in current
-    passed("Reconnect delivers queued resolution and B stops that event warning")
+    accident = create("accident", eventType="ACCIDENT", source="MANUAL_TEST")
+    ack(collection, accident, accident, status=201)
+    resolve_path = f"/prototype/admin/incidents/{accident['id']}/resolve"
+    http("POST", resolve_path, FIXTURE["resolve"], status=403, code="FORBIDDEN")
+    http("POST", f"{collection}/{accident['id']}/retract", retract, status=403, code="FORBIDDEN")
+    resolved = {**accident, "version": 2, "status": "RESOLVED"}
+    ack(resolve_path, FIXTURE["resolve"], resolved, identity="ADMIN")
+    ack(resolve_path, FIXTURE["resolve"], resolved, identity="ADMIN", duplicate=True)
+    assert next(event for event in snapshot()["events"] if event["id"] == accident["id"]) == resolved
+    http("POST", f"{collection}/{run_id}-missing/retract", retract, status=404, code="NOT_FOUND")
+    passed("Only controlled TEST admin resolves accidents; exact ACK retry remains idempotent")
 
-    adb("shell", "am", "force-stop", "--user", USER, A)
-    adb("shell", "am", "start", "--user", USER, "-p", A, "-a", f"{A}.START_ROADSIDE_SUPPORT")
-    wait_for("START_ROADSIDE_SUPPORT → asking")
-    adb("shell", "am", "start", "--user", USER, "-p", A, "-a", f"{A}.REPORT_OCCUPANT_STATUS", "--es", "responder", "DRIVER", "--es", "help", "NEEDS_HELP")
-    wait_for("RESPONDED / DRIVER")
-    wait_for("REPORT_OCCUPANT_STATUS → success")
-    snapshot("a-gleo-intent-contract")
-    passed("ADB-injected Gleo contract starts the app cold and handles a follow-up; this does not prove Gleo speech")
-    tap("테스트 사건 해제")
-    wait_for("전송 대기 0개")
+    observed = now_ms() - TTL_MS + 500
+    expiring = create("ttl", observedAt=observed, expiresAt=observed + TTL_MS)
+    ack(collection, expiring, expiring, status=201)
+    time.sleep(max(0, expiring["expiresAt"] - now_ms() + 20) / 1000)
+    ack(collection, expiring, expiring, duplicate=True)
+    stale = snapshot()
+    stale_event = next(event for event in stale["events"] if event["id"] == expiring["id"])
+    assert stale_event == expiring and stale["serverNow"] >= stale_event["expiresAt"]
+    http("POST", collection, {**expiring, "id": run_id + "-expired-new"}, status=410, code="EXPIRED_EVENT")
+    passed("Real clock TTL keeps ACTIVE data stale, permits ACK retry and rejects a new expired event")
 
-    launch(B)
-    wait_for("차량 B")
-    (OUT/"results.json").write_text(json.dumps({"status":"passed","checks":checks,"incidentId":incident_id},ensure_ascii=False,indent=2))
-finally:
-    adb("reverse", "tcp:8787", "tcp:8787")
-    (OUT/"logcat.txt").write_text(adb("logcat","-d","-s","RoadsidePrototype:I","*:S"))
+    summary = {"status": "passed", "mode": "HTTP_ONLY_TEST", "contractVersion": FIXTURE["contractVersion"],
+               "runId": run_id, "baseUrl": base_url, "requestCount": request_count, "checks": checks}
+    if args.output:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n")
+    print(json.dumps(summary, ensure_ascii=False, indent=2))
+
+
+if __name__ == "__main__":
+    main()

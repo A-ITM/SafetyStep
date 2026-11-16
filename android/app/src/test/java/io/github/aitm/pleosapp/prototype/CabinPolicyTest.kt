@@ -31,4 +31,12 @@ class CabinPolicyTest {
         assertFalse(gate.update(seats(14000,false),14000))
         assertFalse(gate.update(seats(18000,false),18000))
     }
+    @Test fun initiallyEmptyPassengerBecomingUnknownCannotDisappearFromClearGate() {
+        val gate = CabinClearGate()
+        assertFalse(gate.update(seats(1_000, true, false), 1_000))
+        assertFalse(gate.update(seats(2_000, false, null), 2_000))
+        assertFalse(gate.update(seats(6_000, false, null), 6_000))
+        assertFalse(gate.update(seats(7_000, false), 7_000))
+        assertFalse(gate.update(seats(11_000, false), 11_000))
+    }
 }

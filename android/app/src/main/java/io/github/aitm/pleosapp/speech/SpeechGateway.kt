@@ -11,9 +11,14 @@ interface SpeechGateway {
     val available: Boolean
     suspend fun ask(prompt: String, phase: (VoicePhase) -> Unit, testPcm: ByteArray? = null): VoiceResult
     suspend fun say(prompt: String, phase: (VoicePhase) -> Unit): VoiceResult = VoiceResult.Failed("음성 안내 미지원")
+    /** Opens recognition without replaying a question or the first safety instruction. */
+    suspend fun listen(phase: (VoicePhase) -> Unit, testPcm: ByteArray? = null): VoiceResult =
+        VoiceResult.Failed("음성 응답 미지원")
 }
 class UnavailableSpeechGateway : SpeechGateway {
     override val available = false
     override suspend fun ask(prompt: String, phase: (VoicePhase) -> Unit, testPcm: ByteArray?) =
+        VoiceResult.Failed("이 빌드에는 음성 서비스가 연결되어 있지 않습니다.")
+    override suspend fun listen(phase: (VoicePhase) -> Unit, testPcm: ByteArray?) =
         VoiceResult.Failed("이 빌드에는 음성 서비스가 연결되어 있지 않습니다.")
 }

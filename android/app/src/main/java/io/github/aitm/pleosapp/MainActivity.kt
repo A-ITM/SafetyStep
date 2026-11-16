@@ -57,22 +57,23 @@ private fun PrototypeScreen(model: PrototypeViewModel) {
             if (!BuildConfig.DEBUG) { Text("프로토타입 실행은 debug 빌드에서만 지원합니다."); return@Column }
             Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("1. 사고 차량 · 응답 상태", style = MaterialTheme.typography.titleLarge)
+                    Text("1. 사고·고장 지원 · 행동 안내 우선", style = MaterialTheme.typography.titleLarge)
                     Text("사건: ${s.incident?.id?.take(8) ?: "없음"} / 출처: ${s.incident?.source ?: "-"}")
                     Text("응답: ${s.incident?.response ?: ResponseState.IDLE} / ${s.incident?.responder ?: Responder.UNKNOWN}")
                     Text("도움: ${s.incident?.help ?: HelpState.UNKNOWN} / 대피 보고: ${s.incident?.evacuated ?: false}")
                     Text("도로 위험: ${s.incident?.hazard ?: "없음"} / 응답 타이머: ${s.timerRunning}")
                     Row { Checkbox(s.consent, model::setConsent); Text("모의 사건 위치를 로컬 서버에 공유") }
-                    Button(onClick = { model.begin() }) { Text("사고·고장 주입 (모의)") }
-                    Button(onClick = model::startResponseTimer, enabled = s.incident != null) { Text("모의 질문 · 15초 응답 대기") }
-                    Text("제 말이 들리면 답해주세요. 운전자/동승자와 도움 필요 여부를 선택합니다.")
+                    Button(onClick = { model.begin(eventType = EventType.ACCIDENT) }) { Text("명시적 사고 주입 (TEST)") }
+                    Button(onClick = { model.begin() }) { Text("고장·지원 주입 (TEST)") }
+                    Button(onClick = model::startResponseTimer, enabled = s.incident != null) { Text("행동 안내 · 예외 청취 재시도") }
+                    Text("정차를 관측하면 먼저 행동을 안내하고, 완료 뒤 한 번 청취합니다.")
                     Button(onClick = { model.respond(Responder.DRIVER, HelpState.CAN_MOVE) }, enabled = s.incident != null) { Text("운전자 응답 · 행동 가능") }
                     Button(onClick = { model.respond(Responder.DRIVER, HelpState.NEEDS_HELP) }, enabled = s.incident != null) { Text("운전자 응답 · 도움 필요") }
                     Button(onClick = { model.respond(Responder.PASSENGER, HelpState.NEEDS_HELP) }, enabled = s.incident != null) { Text("동승자 응답 · 도움 필요") }
                     Button(onClick = model::voiceFailure, enabled = s.incident != null) { Text("음성 장애 주입") }
                     Button(onClick = model::interrupt) { Text("긴급 통화 중단 모의") }
                     Button(onClick = model::evacuate, enabled = s.incident != null) { Text("대피 보고 (위험 유지)") }
-                    Button(onClick = model::resolve, enabled = s.incident?.hazard == HazardState.ACTIVE) { Text("테스트 사건 해제") }
+                    Text("사고 해소는 loopback 시험 관리자 경로에서만 처리해요. 도움 상태는 유지돼요.")
                     Text("도움이 필요하면 기존 긴급 통화 경로를 우선합니다. 대피 보고는 도로 위험 해제가 아닙니다.")
                 }
                 Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -82,7 +83,7 @@ private fun PrototypeScreen(model: PrototypeViewModel) {
                     Text(s.sdk)
                     Text(s.airbag)
                     Text("초기 전개=true는 새 사고로 전파하지 않습니다. false → true 변화만 새 사건 후보로 처리합니다.")
-                    Text("트렁크 실행은 지원 화면에서 상황·주변 조건 확인 후 요청합니다.")
+                    Text("정상 지원 흐름에서는 비상등과 트렁크를 제어하지 않습니다.")
                     Text(s.trunk)
                     HorizontalDivider()
                     Text("Gleo 연동", style = MaterialTheme.typography.titleMedium)
@@ -95,7 +96,10 @@ private fun PrototypeScreen(model: PrototypeViewModel) {
                     Text(s.network)
                     Text("전송 대기 ${s.pending}개 · 서버 127.0.0.1:8787 (adb reverse)")
                     Row { Checkbox(s.online, model::setOnline); Text("로컬 서버 통신 허용") }
-                    Text("모의 도로 test-highway / 사고 1000m / 수신 차량 600m·25m/s")
+                    Row { Checkbox(s.receiverEnabled, model::setReceiverEnabled); Text("위험 알림 수신") }
+                    Text("${s.receiverStatus} · ${s.receiverDetail}")
+                    Text("${s.stopReportStatus} · ${s.stopReportDetail}")
+                    Text("아래 위치 입력은 명시적 TEST이며 시간이 지나면 만료됩니다.")
                     listOf("approach" to "같은 방향 접근", "opposite" to "반대 방향", "parallel" to "평행도로", "passed" to "사고 지점 통과", "stale" to "위치 만료").forEach { (value, label) ->
                         OutlinedButton(onClick = { model.scenario(value) }, enabled = s.receiverScenario != value) { Text(label) }
                     }

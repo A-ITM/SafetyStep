@@ -51,10 +51,10 @@ class SupportPolicyTest {
         assertEquals(ResponseState.UNAVAILABLE,failed.timeout().response)
         assertEquals(SupportScreen.RESPONSE,SupportPolicy.screen(failed,ready))
     }
-    @Test fun automaticTrunkNeedsFrontCollisionClearanceMobilityAndFreshStop() {
+    @Test fun automaticTrunkIsDisabledEvenWithAllPreviousConditions() {
         val incident = Incident("front", now, "TEST").respond(Responder.DRIVER, HelpState.CAN_MOVE)
         val j = SupportJourney(collision=CollisionContext.FRONT, stationaryConfirmed=true, rearClearConfirmed=true)
-        assertTrue(SupportPolicy.shouldAutoOpenTrunk(incident,j,facts,now))
+        assertFalse(SupportPolicy.shouldAutoOpenTrunk(incident,j,facts,now))
         assertFalse(SupportPolicy.shouldAutoOpenTrunk(incident,j.copy(rearClearConfirmed=false),facts,now))
         assertFalse(SupportPolicy.shouldAutoOpenTrunk(incident,j.copy(collision=CollisionContext.REAR),facts,now))
         assertFalse(SupportPolicy.shouldAutoOpenTrunk(incident,j.copy(collision=CollisionContext.UNKNOWN),facts,now))
@@ -63,5 +63,11 @@ class SupportPolicyTest {
         assertFalse(SupportPolicy.shouldAutoOpenTrunk(incident.copy(help=HelpState.NEEDS_HELP),j,facts,now))
         assertFalse(SupportPolicy.shouldAutoOpenTrunk(incident,j,facts.copy(speedMps=VehicleReading(1f,now)),now))
         assertFalse(SupportPolicy.shouldAutoOpenTrunk(incident,j,facts,now+30_001))
+    }
+
+    @Test fun helpSurvivesRoadTerminationAndClearCabin() {
+        val help = incident.respond(Responder.PASSENGER, HelpState.NEEDS_HELP).resolve()
+        assertEquals(SupportScreen.HELP, SupportPolicy.screen(help, ready, cabinClear = true))
+        assertEquals(HelpState.NEEDS_HELP, help.help)
     }
 }
