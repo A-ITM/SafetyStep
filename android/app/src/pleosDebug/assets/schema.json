@@ -2,13 +2,13 @@
   "packageName": "io.github.aitm.pleosapp",
   "appDescription": "SafetyStep (세이프티스탭), the primary roadside support app for vehicle A. Records occupant responses and shares simulated highway hazards.",
   "invokeWord": "세이프티스탭",
-  "version": "0.2.0-prototype",
+  "version": "0.6.0-safetystep",
   "actionCalls": [
     {
       "type": "function",
       "function": {
         "name": "START_ROADSIDE_SUPPORT",
-        "description": "Start roadside support in SafetyStep (세이프티스탭), the primary app for vehicle A, when a user reports an accident or breakdown. Creates a local incident and asks for the occupant's reported status. Does not call emergency services.",
+        "description": "Create or retain local roadside support in SafetyStep (세이프티스탭), the primary app for vehicle A, following an explicit accident or breakdown request. In the foreground, initial action guidance waits for a current stationary observation. Does not call emergency services.",
         "component": "activity",
         "parameters": {
           "type": "object",

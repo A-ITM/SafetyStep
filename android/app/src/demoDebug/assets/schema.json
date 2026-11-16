@@ -2,13 +2,13 @@
   "packageName": "io.github.aitm.pleosapp.demo",
   "appDescription": "The receiving vehicle B in a highway hazard warning prototype. Separate from the primary Beatbox Mate roadside assistance app.",
   "invokeWord": "세이프티스탭 데모",
-  "version": "0.2.0-prototype",
+  "version": "0.6.0-safetystep",
   "actionCalls": [
     {
       "type": "function",
       "function": {
         "name": "START_ROADSIDE_SUPPORT",
-        "description": "Start a simulated local roadside incident in the receiving vehicle B test app (세이프티스탭 데모). Does not call emergency services.",
+        "description": "Create or retain simulated local roadside support in the receiving vehicle B test app (세이프티스탭 데모) following an explicit request. In the foreground, initial action guidance waits for a current stationary observation. Does not call emergency services.",
         "component": "activity",
         "parameters": {
           "type": "object",

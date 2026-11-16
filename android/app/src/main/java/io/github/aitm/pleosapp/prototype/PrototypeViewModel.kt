@@ -760,7 +760,12 @@ class PrototypeViewModel(application: Application) : AndroidViewModel(applicatio
             when (action) {
                 "START_ROADSIDE_SUPPORT" -> {
                     begin("GLEO_REQUEST")
-                    status = "asking"; message = "Please indicate whether you are the driver or a passenger and whether you need help."
+                    status = "success"
+                    message = if (state.value.supportQualified) {
+                        "Roadside support is active. Follow the on-screen safety guidance. No emergency service was contacted."
+                    } else {
+                        "Roadside support is active. A current stationary observation is required for the initial safety guidance. No emergency service was contacted."
+                    }
                 }
                 "REPORT_OCCUPANT_STATUS" -> {
                     check(state.value.incident != null) { "No active roadside incident exists." }
