@@ -26,8 +26,8 @@ android {
         applicationId = "io.github.aitm.pleosapp"
         minSdk = 28
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.5.0-safetystep"
+        versionCode = 6
+        versionName = "0.6.0-safetystep"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "SUPABASE_URL", "\"${supabaseUrl.trimEnd('/')}\"")
         buildConfigField("String", "VEHICLE_SDK_VERSION", "\"${libs.versions.vehicle.get()}\"")
@@ -59,6 +59,7 @@ android {
         compose = true
         buildConfig = true
     }
+    sourceSets.getByName("androidTest").assets.srcDir(rootProject.file("../docs/contracts/fixtures"))
     packaging { resources.excludes += "/META-INF/{AL2.0,LGPL2.1}" }
 }
 

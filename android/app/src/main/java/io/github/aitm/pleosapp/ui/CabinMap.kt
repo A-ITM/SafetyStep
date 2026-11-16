@@ -29,9 +29,9 @@ internal fun CabinMap(s: PrototypeUi, preparing: Boolean = false) {
     val seats = s.vehicle.seats.associateBy { it.area }
     fun occupied(area: Int) = seats[area]?.occupied?.current(s.now)
     fun label(area: Int) = when (occupied(area)) {
-        true -> "탑승 중"
+        true -> "잔류 감지"
         false -> if (area in s.occupiedSeatAreas) "자리 비움" else "빈자리"
-        null -> "확인 중"
+        null -> "확인 필요"
     }
     val remaining = seats.values.count { it.occupied.current(s.now) == true }
     val unknown = seats.isEmpty() || seats.values.any { it.occupied.current(s.now) == null }
@@ -86,18 +86,18 @@ internal fun CabinMap(s: PrototypeUi, preparing: Boolean = false) {
             }
         }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("좌석별 이동 상태", style = SafetyStepTokens.caption, color = c.secondary)
-            Text(when { remaining > 0 -> "탑승 중 ${remaining}석"; unknown -> "좌석 확인 중"; else -> "모든 좌석이 비어 있어요" },
+            Text(if (s.vehicle.sample) "샘플 좌석 관측" else "관측 좌석 상태", style = SafetyStepTokens.caption, color = c.secondary)
+            Text(when { remaining > 0 -> "잔류 감지 ${remaining}석"; unknown -> "좌석 확인 필요"; else -> "관측 좌석이 비어 있어요" },
                 style = SafetyStepTokens.label, fontWeight = FontWeight.SemiBold, color = if (remaining > 0) c.blue else c.text)
             listOf(1 to "운전석", 4 to "동승석").forEach { (area, name) ->
                 Text("$name · ${label(area)}", style = SafetyStepTokens.caption,
                     color = when { occupied(area) == true -> c.blue; occupied(area) == false && area in s.occupiedSeatAreas -> c.mint; else -> c.secondary })
             }
             if (preparing) {
-                Text("운전석 문 · ${when (s.vehicle.driverDoorOpen.current(s.now)) { true -> "열림"; false -> "닫힘"; null -> "확인 중" }}", style = SafetyStepTokens.caption, color = c.secondary)
-            } else Text("뒷좌석 · ${if (listOf(16, 32, 64).any { occupied(it) == null }) "확인 중" else "탑승 ${listOf(16, 32, 64).count { occupied(it) == true }}석"}", style = SafetyStepTokens.caption, color = c.secondary)
+                Text("운전석 문 · ${when (s.vehicle.driverDoorOpen.current(s.now)) { true -> "열림"; false -> "닫힘"; null -> "확인 필요" }}", style = SafetyStepTokens.caption, color = c.secondary)
+            } else Text("뒷좌석 · ${if (listOf(16, 32, 64).any { occupied(it) == null }) "확인 중" else "잔류 감지 ${listOf(16, 32, 64).count { occupied(it) == true }}석"}", style = SafetyStepTokens.caption, color = c.secondary)
             Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                listOf(c.blue to "탑승", c.mint to "자리 비움", c.secondary to "빈자리").forEach { (color, name) ->
+                listOf(c.blue to "감지", c.mint to "자리 비움", c.secondary to "빈자리").forEach { (color, name) ->
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         Canvas(Modifier.size(8.dp)) { drawCircle(color) }
                         Text(name, style = SafetyStepTokens.caption, color = c.secondary)

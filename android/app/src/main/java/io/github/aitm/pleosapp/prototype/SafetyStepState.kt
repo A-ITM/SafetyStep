@@ -6,6 +6,18 @@ enum class ThemePreference(val label: String) { SYSTEM("시스템"), LIGHT("라�
 enum class CollisionContext(val label: String) { UNKNOWN("아직 몰라요"), REAR("후방 충돌"), FRONT("전방 충돌"), OTHER("그 외 사고"), BREAKDOWN("차량 고장") }
 enum class ControlState { IDLE, CHECKING, CONFIRMED, HELD, UNCONFIRMED }
 enum class SupportScreen { DRIVE, INTAKE, RESPONSE, MOBILITY, EVACUATION, SUPPORT, MONITORING, HELP }
+enum class ReceiverStatus { OFF, ACTIVE, PAUSED, UNAVAILABLE }
+enum class EventFreshness { FRESH, STALE, UNCONFIRMED }
+enum class StopReportStatus { NONE, CANDIDATE, HELD, QUEUED, SHARED, RETRACTED, REJECTED }
+
+data class WarningCard(
+    val incidentId: String,
+    val eventType: EventType,
+    val distanceMeters: Double?,
+    val freshness: EventFreshness,
+    val source: String,
+    val voiceHeld: Boolean = false,
+)
 
 /** Presentation progress is independent of the road hazard and occupant report. */
 data class SupportJourney(
@@ -23,9 +35,9 @@ data class SupportJourney(
 
 object SupportPolicy {
     fun screen(incident: Incident?, journey: SupportJourney, cabinClear: Boolean = false): SupportScreen = when {
-        incident == null || incident.hazard == HazardState.RESOLVED -> SupportScreen.DRIVE
-        cabinClear -> SupportScreen.MONITORING
+        incident == null -> SupportScreen.DRIVE
         journey.callSimulation || incident.help == HelpState.NEEDS_HELP -> SupportScreen.HELP
+        cabinClear -> SupportScreen.MONITORING
         incident.evacuated || (journey.departureDeclared && incident.help == HelpState.CAN_MOVE) -> SupportScreen.SUPPORT
         incident.response == ResponseState.RESPONDED && incident.help == HelpState.CAN_MOVE -> SupportScreen.EVACUATION
         incident.response == ResponseState.RESPONDED -> SupportScreen.MOBILITY
@@ -33,10 +45,8 @@ object SupportPolicy {
         else -> SupportScreen.RESPONSE
     }
 
-    fun shouldAutoOpenTrunk(incident: Incident?, journey: SupportJourney, facts: VehicleSnapshot, now: Long): Boolean =
-        incident?.hazard == HazardState.ACTIVE && incident.help == HelpState.CAN_MOVE &&
-            journey.collision == CollisionContext.FRONT && journey.rearClearConfirmed && !journey.autoTrunkClaimed &&
-            trunkBlock(journey, facts, now, true) == null
+    @Suppress("UNUSED_PARAMETER")
+    fun shouldAutoOpenTrunk(incident: Incident?, journey: SupportJourney, facts: VehicleSnapshot, now: Long): Boolean = false
 
     fun trunkBlock(journey: SupportJourney, facts: VehicleSnapshot, now: Long, finalConfirmation: Boolean): String? = when {
         journey.callSimulation -> "연락 지원 중에는 차량 제어를 보류해요."
