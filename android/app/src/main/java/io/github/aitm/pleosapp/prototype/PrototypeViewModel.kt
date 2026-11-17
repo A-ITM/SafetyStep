@@ -254,7 +254,12 @@ class PrototypeViewModel(application: Application) : AndroidViewModel(applicatio
         stopVoice(); reportJob?.cancel(); reportJob = null
         val now = System.currentTimeMillis(); val elapsed = SystemClock.elapsedRealtime()
         val type = eventType
-        val incident = Incident(UUID.randomUUID().toString(), now, source, eventType = type)
+        val incident = Incident(UUID.randomUUID().toString(), now, source, eventType = type).let { next ->
+            // A newly observed crash must not erase an occupant's unresolved request for help.
+            if (existing?.help == HelpState.NEEDS_HELP) next.copy(
+                response = existing.response, responder = existing.responder, help = HelpState.NEEDS_HELP,
+            ) else next
+        }
         updateIncident(incident); journey(SupportJourney()); cabinClearGate.reset()
         firstActionComplete = null; firstActionAttempted = null; listeningAttempted = null; firstActionRequested = useVoice
         supportInputElapsed[incident.id] = elapsed; firstEvidenceElapsed[incident.id] = minOf(elapsed, firstStopElapsed ?: elapsed)

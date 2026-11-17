@@ -151,7 +151,10 @@ class SafetyStepUiTest {
     }
 
     @Test fun observedAccidentReplacesStoppedSessionAndSurvivesClassificationChanges() {
-        change { it.begin(eventType = EventType.STOPPED_VEHICLE, useVoice = false) }
+        change {
+            it.begin(eventType = EventType.STOPPED_VEHICLE, useVoice = false)
+            it.respond(Responder.PASSENGER, HelpState.NEEDS_HELP)
+        }
         val stopped = compose.runOnIdle { model().state.value.incident!! }
         compose.waitUntil(1_000) { System.currentTimeMillis() > stopped.observedAt }
         change {
@@ -166,6 +169,9 @@ class SafetyStepUiTest {
         assertTrue(accident.observedAt > stopped.observedAt)
         assertEquals(EventType.ACCIDENT, accident.eventType)
         assertEquals("SDK_AIRBAG", accident.source)
+        assertEquals(HelpState.NEEDS_HELP, accident.help)
+        assertEquals(Responder.PASSENGER, accident.responder)
+        compose.onNodeWithText("무리하게 움직이지 마세요").assertIsDisplayed()
         listOf(CollisionContext.UNKNOWN, CollisionContext.BREAKDOWN).forEach { classification ->
             change { it.setCollision(classification); it.refreshReportLocation() }
             compose.runOnIdle {
