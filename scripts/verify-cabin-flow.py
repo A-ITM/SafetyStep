@@ -146,7 +146,9 @@ class CabinHarness(qa.Harness):
             for test_class in classes:
                 # Separate instrumentation processes keep an earlier Activity's
                 # lifecycle/Compose idling resources from leaking into another class.
-                self.adb("shell", "am", "force-stop", "--user", self.args.user, package)
+                self.adb("shell", "input", "keyevent", "KEYCODE_WAKEUP")
+                self.adb("shell", "wm", "dismiss-keyguard")
+                time.sleep(1)
                 started = time.monotonic()
                 command = [str(self.args.adb), "-s", self.args.serial, "shell",
                            "am", "instrument", "-w", "--user", str(self.args.user),
