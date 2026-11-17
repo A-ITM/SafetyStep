@@ -2,7 +2,6 @@ package io.github.aitm.pleosapp.ui
 
 import android.content.Intent
 import android.net.Uri
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
@@ -17,13 +16,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -37,40 +34,49 @@ fun SafetyStepApp(model: PrototypeViewModel, diagnostics: @Composable () -> Unit
     val s by model.state.collectAsStateWithLifecycle()
     var diagnostic by rememberSaveable { mutableStateOf(false) }
     var tools by rememberSaveable { mutableStateOf(false) }
+    var lastIncidentId by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(s.drivingRestricted) {
         if (s.drivingRestricted) { tools = false; diagnostic = false }
+    }
+    LaunchedEffect(s.incident?.id, s.incident?.help) {
+        val id = s.incident?.id
+        if (id != null && (id != lastIncidentId || s.incident?.help == HelpState.NEEDS_HELP)) {
+            tools = false; diagnostic = false
+        }
+        lastIncidentId = id
     }
     SafetyStepTheme(s.theme) {
         val c = LocalSafetyColors.current
         Surface(Modifier.fillMaxSize(), color = c.panel) {
             BoxWithConstraints(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
                 val padding = if (maxWidth < 600.dp) SafetyStepTokens.compactGutter else SafetyStepTokens.gutter
-                Column(Modifier.fillMaxSize().padding(horizontal = padding, vertical = 24.dp)) {
+                Column(Modifier.fillMaxSize().padding(horizontal = padding, vertical = 16.dp)) {
                     AppHeader({ tools = true }, diagnostic, !s.drivingRestricted) { diagnostic = false }
-                    Spacer(Modifier.height(24.dp))
-                    if (s.drivingRestricted) {
-                        Column(Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.Center) { DrivingContent(s) }
-                    } else if (diagnostic) Box(Modifier.weight(1f)) { diagnostics() }
-                    else if (!BuildConfig.DEBUG) Text("디버그 프로토타입에서 실행해주세요.", Modifier.weight(1f))
-                    else {
-                        val receiver = s.receiverView && s.incident == null
-                        val screen = when {
-                            receiver -> "RECEIVER"
-                            s.incident == null -> "DRIVE"
-                            s.incident?.help == HelpState.NEEDS_HELP -> "HELP"
-                            else -> "DASHBOARD"
-                        }
-                        Column(
-                            Modifier.weight(1f).fillMaxWidth().testTag("screen-$screen")
-                                .verticalScroll(rememberScrollState()).padding(bottom = 24.dp),
-                            verticalArrangement = Arrangement.spacedBy(16.dp),
-                        ) {
-                            if (receiver) ReceiverContent(s, model)
-                            else if (s.incident != null) IncidentDashboard(s, model)
-                            else HomeContent(s, model)
+                    Spacer(Modifier.height(SafetyStepTokens.gap))
+                    when {
+                        s.drivingRestricted -> Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) { DrivingContent(s) }
+                        diagnostic -> Box(Modifier.weight(1f).fillMaxWidth()) { diagnostics() }
+                        !BuildConfig.DEBUG -> Box(Modifier.weight(1f).fillMaxWidth()) { Text("디버그 프로토타입에서 실행해주세요.") }
+                        else -> {
+                            val receiver = s.receiverView && s.incident == null
+                            val screen = when {
+                                receiver -> "RECEIVER"
+                                s.incident == null -> "DRIVE"
+                                s.incident?.help == HelpState.NEEDS_HELP -> "HELP"
+                                else -> "DASHBOARD"
+                            }
+                            // The dashboard owns its bounded body and pinned support actions.
+                            Box(Modifier.weight(1f).fillMaxWidth().testTag("screen-$screen")) {
+                                if (s.incident != null) IncidentDashboard(s, model)
+                                else if (receiver) ReceiverContent(s, model)
+                                else HomeContent(s, model)
+                            }
                         }
                     }
-                    StatusBand(s)
+                    if (!s.drivingRestricted && s.incident != null && s.stopReportStatus != StopReportStatus.NONE) {
+                        Spacer(Modifier.height(16.dp))
+                        StopReportCard(s)
+                    }
                 }
             }
         }
@@ -80,65 +86,60 @@ fun SafetyStepApp(model: PrototypeViewModel, diagnostics: @Composable () -> Unit
 
 @Composable private fun AppHeader(openTools: () -> Unit, diagnostic: Boolean, editable: Boolean, closeDiagnostic: () -> Unit) {
     val c = LocalSafetyColors.current
-    Row(Modifier.fillMaxWidth().heightIn(min = SafetyStepTokens.touch), verticalAlignment = Alignment.CenterVertically) {
-        SafetyMark(Modifier.size(36.dp), c.blue)
-        Text("세이프티스탭", fontSize = 28.sp, fontWeight = FontWeight.SemiBold, color = c.text, modifier = Modifier.padding(start = 16.dp))
-        Spacer(Modifier.weight(1f))
-        if (diagnostic && editable) TextButton(onClick = closeDiagnostic) { Text("지원 화면") }
-        if (editable) TextButton(onClick = openTools, modifier = Modifier.testTag("tools").size(SafetyStepTokens.touch), shape = RoundedCornerShape(SafetyStepTokens.radius),
+    Row(Modifier.fillMaxWidth().height(SafetyStepTokens.touch), verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(SafetyStepTokens.smallGap)) {
+        SafetyShield(Modifier.size(SafetyStepTokens.brandSymbol), c.blue)
+        Text("세이프티스탭", Modifier.weight(1f), fontSize = 26.sp, lineHeight = 34.sp, fontWeight = FontWeight.Medium,
+            color = c.secondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Surface(color = c.inset, shape = RoundedCornerShape(SafetyStepTokens.badgeRadius), modifier = Modifier.testTag("test-badge")) {
+            Text("TEST", fontSize = 16.sp, lineHeight = 22.sp, fontWeight = FontWeight.Medium,
+                color = c.secondary, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
+        }
+        if (editable) TextButton(onClick = if (diagnostic) closeDiagnostic else openTools,
+            modifier = Modifier.testTag(if (diagnostic) "close-diagnostics" else "tools").size(SafetyStepTokens.touch),
+            shape = RoundedCornerShape(SafetyStepTokens.radius),
             colors = ButtonDefaults.textButtonColors(containerColor = Color.Transparent)) {
-            Text("•••", fontSize = 26.sp, color = c.secondary)
+            Text(if (diagnostic) "지원" else "설정", style = SafetyStepTokens.label, color = c.secondary)
         }
-    }
-}
-
-@Composable private fun SafetyMark(modifier: Modifier, color: Color) {
-    Canvas(modifier) {
-        val w = size.width; val h = size.height
-        val shield = Path().apply {
-            moveTo(w * .5f, h * .04f); lineTo(w * .86f, h * .2f); lineTo(w * .86f, h * .52f)
-            cubicTo(w * .86f, h * .73f, w * .67f, h * .88f, w * .5f, h * .97f)
-            cubicTo(w * .33f, h * .88f, w * .14f, h * .73f, w * .14f, h * .52f)
-            lineTo(w * .14f, h * .2f); close()
-        }
-        drawPath(shield, color, style = Stroke((w * .045f).coerceAtLeast(2f), cap = StrokeCap.Round))
     }
 }
 
 @Composable private fun HomeContent(s: PrototypeUi, model: PrototypeViewModel) {
-    val c = LocalSafetyColors.current
-    SafetyMark(Modifier.size(112.dp), c.mint)
-    Hero("안전운전 하세요", "정차 중 주변 위험 알림을 켤 수 있어요.")
-    ReceiverSettings(s, model)
-    if (s.warningCards.isNotEmpty()) WarningCards(s.warningCards)
-    Action("고장·정차 도움받기", "start-support") { model.begin() }
-    SecondaryAction("사고 도움받기", "start-accident") { model.begin(eventType = EventType.ACCIDENT) }
-    Text("TEST 프로토타입 · 공유와 접근 알림은 시험 위치를 사용해요.", style = SafetyStepTokens.caption, color = c.secondary)
-    StopReportCard(s)
+    val warning = preferredWarning(s.warningCards)
+    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(SafetyStepTokens.gap)) {
+        if (warning != null) WarningCards(listOf(warning)) else Row(Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(SafetyStepTokens.gap)) {
+            SafetyShield(Modifier.size(SafetyStepTokens.homeSymbol), LocalSafetyColors.current.blue.copy(alpha = .8f), strokeWidth = 2.5.dp)
+            Text("안전운전 하세요", Modifier.weight(1f), style = SafetyStepTokens.hero)
+        }
+        ReceiverSettings(s, model)
+        if (s.stopReportStatus != StopReportStatus.NONE) StopReportCard(s)
+        Spacer(Modifier.weight(1f))
+        Action("사고·고장 도움받기", "start-support") { model.begin() }
+    }
 }
 
 @Composable internal fun RoadNotice(s: PrototypeUi) = StopReportCard(s)
 
 @Composable internal fun StopReportCard(s: PrototypeUi) {
+    if (s.stopReportStatus == StopReportStatus.NONE) return
     val c = LocalSafetyColors.current
     val message = when (s.stopReportStatus) {
-        StopReportStatus.NONE -> if (s.consent) "위험 위치 공유 켜짐" else "위험 위치 공유 꺼짐"
-        StopReportStatus.CANDIDATE -> "연속 정차를 확인하고 있어요"
-        StopReportStatus.HELD -> "정차 위치 공유를 보류했어요"
-        StopReportStatus.QUEUED -> "위험 위치 공유를 기다리고 있어요"
-        StopReportStatus.SHARED -> "TEST 위험 위치를 공유했어요"
-        StopReportStatus.RETRACTED -> "재출발을 확인해 정차 알림을 철회했어요"
-        StopReportStatus.REJECTED -> "위험 위치를 공유하지 못했어요"
+        StopReportStatus.NONE -> ""
+        StopReportStatus.CANDIDATE -> "정차 상태 확인 중"
+        StopReportStatus.HELD -> "위험 위치 공유 보류"
+        StopReportStatus.QUEUED -> "위험 위치 공유 대기"
+        StopReportStatus.SHARED -> "위험 위치 공유 확인"
+        StopReportStatus.RETRACTED -> "재출발 · 정차 알림 철회됨"
+        StopReportStatus.REJECTED -> "위험 위치 공유 실패"
     }
-    Column(Modifier.fillMaxWidth().testTag("stop-report-status"), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        InlineNote(message, if (s.stopReportStatus == StopReportStatus.SHARED) c.blue else c.secondary)
-        if (s.stopReportStatus != StopReportStatus.NONE && s.stopReportDetail.isNotBlank()) Text(s.stopReportDetail, style = SafetyStepTokens.caption, color = c.secondary)
-    }
+    Text(message, Modifier.fillMaxWidth().testTag("stop-report-status"), style = SafetyStepTokens.label,
+        color = if (s.stopReportStatus == StopReportStatus.SHARED) c.blue else c.secondary)
 }
 
 @Composable internal fun Hero(title: String, body: String = "") {
     val c = LocalSafetyColors.current
-    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(title, style = SafetyStepTokens.hero)
         if (body.isNotEmpty()) Text(body, color = c.secondary, style = SafetyStepTokens.body)
     }
@@ -147,7 +148,7 @@ fun SafetyStepApp(model: PrototypeViewModel, diagnostics: @Composable () -> Unit
 @Composable internal fun Action(label: String, tag: String = label, enabled: Boolean = true, danger: Boolean = false, action: () -> Unit) {
     val c = LocalSafetyColors.current
     Button(onClick = action, enabled = enabled, modifier = Modifier.fillMaxWidth().heightIn(min = SafetyStepTokens.primaryHeight).testTag(tag),
-        shape = RoundedCornerShape(SafetyStepTokens.radius), contentPadding = PaddingValues(22.dp),
+        shape = RoundedCornerShape(SafetyStepTokens.radius), contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
         colors = ButtonDefaults.buttonColors(containerColor = if (danger) Color(0xFFC92A30) else MaterialTheme.colorScheme.primary,
             contentColor = if (danger) Color.White else MaterialTheme.colorScheme.onPrimary,
             disabledContainerColor = c.inset, disabledContentColor = c.secondary)) {
@@ -158,7 +159,7 @@ fun SafetyStepApp(model: PrototypeViewModel, diagnostics: @Composable () -> Unit
 @Composable internal fun SecondaryAction(label: String, tag: String = label, action: () -> Unit) {
     val c = LocalSafetyColors.current
     OutlinedButton(onClick = action, modifier = Modifier.fillMaxWidth().heightIn(min = SafetyStepTokens.secondaryHeight).testTag(tag),
-        shape = RoundedCornerShape(SafetyStepTokens.radius), contentPadding = PaddingValues(22.dp),
+        shape = RoundedCornerShape(SafetyStepTokens.radius), contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
         colors = ButtonDefaults.outlinedButtonColors(contentColor = c.text, containerColor = c.inset)) {
         Text(label, style = SafetyStepTokens.action)
     }
@@ -167,150 +168,156 @@ fun SafetyStepApp(model: PrototypeViewModel, diagnostics: @Composable () -> Unit
 @Composable internal fun LinkAction(label: String, tag: String = label, color: Color = LocalSafetyColors.current.blue, action: () -> Unit) {
     TextButton(onClick = action, modifier = Modifier.fillMaxWidth().heightIn(min = SafetyStepTokens.touch).testTag(tag),
         shape = RoundedCornerShape(SafetyStepTokens.radius), colors = ButtonDefaults.textButtonColors(containerColor = Color.Transparent)) {
-        Text(label, color = color, fontSize = 24.sp)
+        Text(label, color = color, style = SafetyStepTokens.label)
     }
 }
 
-@Composable private fun InlineNote(text: String, color: Color) {
-    val c = LocalSafetyColors.current
-    Text(text, fontSize = 24.sp, lineHeight = 36.sp, color = color,
-        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(c.inset).padding(22.dp))
-}
-
-@Composable private fun CheckLine(label: String, checked: Boolean, change: (Boolean) -> Unit, tag: String, enabled: Boolean = true) {
+@Composable private fun CheckLine(label: String, checked: Boolean, change: (Boolean) -> Unit, tag: String, enabled: Boolean = true,
+    status: String? = null,
+) {
     val c = LocalSafetyColors.current
     Row(Modifier.fillMaxWidth().heightIn(min = SafetyStepTokens.touch)
-        .clip(RoundedCornerShape(SafetyStepTokens.radius)).background(if (checked) c.blue.copy(alpha = .09f) else Color.Transparent)
-        .border(1.dp, if (checked) c.blue.copy(alpha = .45f) else c.line, RoundedCornerShape(SafetyStepTokens.radius))
+        .clip(RoundedCornerShape(SafetyStepTokens.radius)).background(if (checked) c.blue.copy(alpha = .07f) else c.inset)
+        .border(1.dp, if (checked) c.blue.copy(alpha = .35f) else c.line, RoundedCornerShape(SafetyStepTokens.radius))
         .testTag(tag).toggleable(value = checked, enabled = enabled, role = Role.Checkbox, onValueChange = change)
-        .padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-        Checkbox(checked, onCheckedChange = null, enabled = enabled, modifier = Modifier.size(48.dp))
-        Text(label, style = SafetyStepTokens.label, color = if (enabled) c.text else c.secondary,
-            modifier = Modifier.weight(1f).padding(start = 12.dp, top = 12.dp, bottom = 12.dp))
+        .padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.weight(1f)) {
+            Text(label, style = SafetyStepTokens.label, color = if (enabled) c.text else c.secondary)
+            if (status != null) Text(status, Modifier.testTag("receiver-status"), style = SafetyStepTokens.label,
+                color = if (checked && enabled) c.blue else c.secondary)
+        }
+        Switch(checked, onCheckedChange = null, enabled = enabled)
     }
 }
 
 @Composable internal fun ContactActions() {
     val context = LocalContext.current
     var failure by remember { mutableStateOf(false) }
-    Action("긴급 전화 열기", "contact-phone", danger = true) {
+    Action("119 전화 열기", "contact-phone", danger = true) {
         failure = runCatching { context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:119"))) }.isFailure
     }
     if (failure) Text("차량의 전화 메뉴에서 긴급 전화를 이용해주세요.", style = SafetyStepTokens.label)
 }
 
 @Composable internal fun ReceiverSettings(s: PrototypeUi, model: PrototypeViewModel) {
-    CheckLine("주변 위험 알림 받기", s.receiverEnabled, model::setReceiverEnabled, "receiver-enabled", !s.drivingRestricted)
-    Text("수신 ${receiverLabel(s.receiverStatus)}", Modifier.testTag("receiver-status"), style = SafetyStepTokens.label, color = LocalSafetyColors.current.blue)
-    if (s.receiverDetail.isNotBlank()) Text(s.receiverDetail, style = SafetyStepTokens.caption, color = LocalSafetyColors.current.secondary)
+    CheckLine("주변 위험 알림", s.receiverEnabled, model::setReceiverEnabled, "receiver-enabled", !s.drivingRestricted,
+        status = receiverLabel(s.receiverStatus))
 }
 
 internal fun receiverLabel(status: ReceiverStatus): String = when (status) {
     ReceiverStatus.OFF -> "꺼짐"
-    ReceiverStatus.ACTIVE -> "켜짐 · 확인 중"
-    ReceiverStatus.PAUSED -> "일시 중지"
+    ReceiverStatus.ACTIVE -> "수신 중"
+    ReceiverStatus.PAUSED -> "일시 중지 · 앱을 열어 재개"
     ReceiverStatus.UNAVAILABLE -> "연결·위치 확인 필요"
 }
 
-@Composable private fun DrivingContent(s: PrototypeUi) {
-    val c = LocalSafetyColors.current
-    val ownSupport = s.incident != null
-    val warning = !ownSupport && s.warningCards.isNotEmpty()
-    val freshWarning = s.warningCards.any { it.freshness == EventFreshness.FRESH }
-    SafetyMark(Modifier.size(100.dp), if (warning) c.amber else c.blue)
-    Spacer(Modifier.height(28.dp))
-    Hero(if (warning && !freshWarning) "전방 알림\n현재 상태 확인 필요" else if (warning) "전방 위험\n속도를 줄이세요" else if (ownSupport) "운전에 집중하세요" else "안전운전 하세요",
-        if (warning) "앞차와의 거리를 확보하세요." else if (ownSupport) "안전하게 정차한 후 안내를 이어갈 수 있어요." else "주변 위험 수신 ${receiverLabel(s.receiverStatus)}")
-    if (warning) WarningCards(s.warningCards.take(1), compact = true)
-}
+/** One selection policy for both parked and driving views, independent from server order. */
+internal fun preferredWarning(cards: List<WarningCard>): WarningCard? = cards.minWithOrNull(
+    compareBy<WarningCard> { if (it.freshness == EventFreshness.FRESH) 0 else 1 }
+        .thenBy { it.distanceMeters?.takeIf { distance -> distance.isFinite() && distance > 0 } ?: Double.MAX_VALUE }
+        .thenBy { it.freshness.ordinal }.thenBy { it.incidentId },
+)
 
-@Composable private fun SafetyDialog(title: String, close: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
-    Dialog(onDismissRequest = close, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
-        Surface(Modifier.fillMaxWidth(.92f).heightIn(max = 1100.dp), shape = RoundedCornerShape(28.dp), color = LocalSafetyColors.current.panel) {
-            Column(Modifier.padding(32.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(24.dp)) {
-                Text(title, style = SafetyStepTokens.action)
-                content()
+@Composable internal fun DrivingContent(s: PrototypeUi) {
+    val warning = preferredWarning(s.warningCards)
+    Column(Modifier.fillMaxWidth().testTag("screen-DRIVING"), verticalArrangement = Arrangement.spacedBy(SafetyStepTokens.gap)) {
+        when {
+            s.incident != null -> Hero(if (s.incident.help == HelpState.NEEDS_HELP) "무리하게 움직이지 마세요" else "안전하게 정차해주세요",
+                if (s.incident.help == HelpState.NEEDS_HELP) "가능한 방법으로 도움을 요청하세요."
+                else "주변을 살피고 안전한 곳에 정차한 뒤 안내를 이어가세요.")
+            warning != null -> WarningCards(listOf(warning), compact = true)
+            else -> {
+                Hero("운전에 집중하세요")
+                Text("주변 위험 알림 ${receiverLabel(s.receiverStatus)}", style = SafetyStepTokens.label, color = LocalSafetyColors.current.secondary)
             }
         }
     }
 }
 
-@Composable private fun StatusBand(s: PrototypeUi) {
-    val c = LocalSafetyColors.current
-    val occupant = when {
-        s.incident?.help == HelpState.NEEDS_HELP -> "도움 필요"
-        s.incident == null -> if (s.drivingRestricted) "주행 중" else "정차 중"
-        s.cabinClearConfirmed -> "관측 좌석 비움"
-        s.vehicle.seats.any { it.occupied.current(s.now) == true } -> "좌석 잔류 관측"
-        else -> "좌석 확인 필요"
-    }
-    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        HorizontalDivider(color = c.line)
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
-            StatusCell("내 차량", occupant, if (s.incident?.help == HelpState.NEEDS_HELP) c.red else c.text, Modifier.weight(1f))
-            StatusCell("주변 위험 수신", receiverLabel(s.receiverStatus), if (s.warningCards.isNotEmpty()) c.amber else c.secondary, Modifier.weight(1f))
+@Composable internal fun SafetyDialog(title: String, close: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
+    Dialog(onDismissRequest = close, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
+        Surface(Modifier.fillMaxWidth(.94f).fillMaxHeight(.92f).heightIn(max = 1100.dp),
+            shape = RoundedCornerShape(SafetyStepTokens.dialogRadius), color = LocalSafetyColors.current.panel) {
+            Column(Modifier.padding(24.dp)) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(SafetyStepTokens.gap)) {
+                    Text(title, Modifier.weight(1f), style = SafetyStepTokens.action)
+                    TextButton(onClick = close, modifier = Modifier.size(SafetyStepTokens.touch).testTag("dialog-close")) {
+                        Text("닫기", style = SafetyStepTokens.label)
+                    }
+                }
+                Spacer(Modifier.height(SafetyStepTokens.gap))
+                Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(SafetyStepTokens.gap), content = content)
+            }
         }
     }
 }
 
-@Composable private fun StatusCell(label: String, value: String, color: Color, modifier: Modifier) {
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text(label, style = SafetyStepTokens.caption, color = LocalSafetyColors.current.secondary)
-        Text(value, style = SafetyStepTokens.label, fontWeight = FontWeight.SemiBold, color = color)
-    }
-}
-
 @Composable private fun ReceiverContent(s: PrototypeUi, model: PrototypeViewModel) {
-    Hero("주변 위험 알림")
-    ReceiverSettings(s, model)
-    if (s.warningCards.isNotEmpty()) WarningCards(s.warningCards)
-    else Text(if (s.receiverStatus == ReceiverStatus.ACTIVE) "현재 표시할 위험 알림이 없어요. 도로 상태를 계속 살펴주세요." else "알림을 받으려면 수신 상태를 확인해주세요.", style = SafetyStepTokens.body, color = LocalSafetyColors.current.secondary)
-    Text("TEST 위치 기반 알림", style = SafetyStepTokens.caption, color = LocalSafetyColors.current.secondary)
-    LinkAction("내 차량 화면으로") { model.receiverView(false) }
+    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(SafetyStepTokens.gap)) {
+        preferredWarning(s.warningCards)?.let { WarningCards(listOf(it)) }
+            ?: Hero("주변 위험 알림")
+        ReceiverSettings(s, model)
+        Spacer(Modifier.weight(1f))
+        SecondaryAction("내 차량 화면으로") { model.receiverView(false) }
+    }
 }
 
 @Composable internal fun WarningCards(cards: List<WarningCard>, compact: Boolean = false) {
     val c = LocalSafetyColors.current
     cards.forEach { card ->
-        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(SafetyStepTokens.radius)).background(c.inset).padding(20.dp).testTag("warning-${card.incidentId}"),
-            verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(if (card.eventType == EventType.ACCIDENT) "전방 사고 알림" else "전방 정차 차량", style = SafetyStepTokens.action, color = c.amber)
-            Text(card.distanceMeters?.takeIf { it.isFinite() && it > 0 }?.let { "${kotlin.math.ceil(it).toInt()} m 앞" } ?: "거리 확인 필요",
-                style = if (compact) SafetyStepTokens.action else SafetyStepTokens.hero, modifier = Modifier.testTag("warning-distance-${card.incidentId}"))
-            Text(when (card.freshness) {
-                EventFreshness.FRESH -> "최근 받은 TEST 알림"
-                EventFreshness.STALE -> "오래된 알림 · 현재 상태 확인 필요"
-                EventFreshness.UNCONFIRMED -> "최신 상태 확인 안 됨"
-            }, style = SafetyStepTokens.caption, color = c.secondary)
-            if (!compact) Text(when (card.source) {
-                "STOP_OBSERVATION" -> "TEST · 정차 관측"
-                "SDK_AIRBAG" -> "TEST · 차량 사고 입력"
-                else -> "TEST · 시험 입력"
-            }, style = SafetyStepTokens.caption, color = c.secondary)
-            if (card.voiceHeld) Text("저속 정차 중 · 음성 안내 보류", style = SafetyStepTokens.caption, color = c.secondary)
-            if (!compact) Text("속도를 줄이고 앞차와 거리를 확보하세요.", style = SafetyStepTokens.label)
+        val distance = card.distanceMeters?.takeIf { it.isFinite() && it > 0 }
+        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(SafetyStepTokens.radius)).background(c.inset)
+            .padding(if (compact) 20.dp else SafetyStepTokens.cardPadding).testTag("warning-${card.incidentId}"),
+            verticalArrangement = Arrangement.spacedBy(SafetyStepTokens.smallGap)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                WarningTriangle(Modifier.size(SafetyStepTokens.warningSymbol), c.amber)
+                Text(if (card.eventType == EventType.ACCIDENT) "전방 사고 알림" else "전방 정차 차량", style = SafetyStepTokens.action, color = c.amber)
+            }
+            Text(distance?.let { "${kotlin.math.ceil(it).toInt()} m 앞" } ?: "거리 확인 필요",
+                style = if (distance != null) SafetyStepTokens.distance else SafetyStepTokens.body,
+                modifier = Modifier.testTag("warning-distance-${card.incidentId}"))
+            if (card.freshness != EventFreshness.FRESH) Text(
+                if (card.freshness == EventFreshness.STALE) "오래된 알림 · 확인 필요" else "현재 상태 확인 필요",
+                style = SafetyStepTokens.label, color = c.secondary)
+            Text("속도를 줄이고 거리를 확보하세요.", style = SafetyStepTokens.body)
+            if (card.voiceHeld) Text("저속 정차 중 · 음성 보류", style = SafetyStepTokens.label, color = c.secondary)
         }
     }
 }
 
 @Composable private fun ToolsDialog(s: PrototypeUi, model: PrototypeViewModel, close: () -> Unit, diagnostics: () -> Unit) {
+    var developer by rememberSaveable { mutableStateOf(false) }
+    val c = LocalSafetyColors.current
     SafetyDialog("설정", close) {
+        ReceiverSettings(s, model)
+        CheckLine("위험 위치 공유 동의", s.consent, model::setConsent, "share")
+        Text("공유 동의는 주변 알림 수신과 별개예요.", style = SafetyStepTokens.caption, color = LocalSafetyColors.current.secondary)
         Text("화면 테마", style = SafetyStepTokens.label)
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            ThemePreference.entries.forEach { mode ->
-                OutlinedButton(onClick = { model.setTheme(mode); close() }, modifier = Modifier.weight(1f).heightIn(min = SafetyStepTokens.touch).testTag("theme-${mode.name.lowercase()}")) {
-                    Text(mode.label, style = SafetyStepTokens.label)
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
+            if (maxWidth >= 312.dp) Row(horizontalArrangement = Arrangement.spacedBy(SafetyStepTokens.gap)) {
+                ThemePreference.entries.forEach { mode ->
+                    OutlinedButton(onClick = { model.setTheme(mode); close() }, modifier = Modifier.weight(1f).height(SafetyStepTokens.touch)
+                        .testTag("theme-${mode.name.lowercase()}"), contentPadding = PaddingValues(horizontal = 8.dp, vertical = 12.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(containerColor = if (s.theme == mode) c.blue.copy(alpha = .10f) else Color.Transparent,
+                            contentColor = if (s.theme == mode) c.blue else c.text)) {
+                        Text(mode.label, style = SafetyStepTokens.label, maxLines = 1)
+                    }
+                }
+            } else Column(verticalArrangement = Arrangement.spacedBy(SafetyStepTokens.gap)) {
+                ThemePreference.entries.forEach { mode ->
+                    SecondaryAction(mode.label, "theme-${mode.name.lowercase()}") { model.setTheme(mode); close() }
                 }
             }
         }
-        ReceiverSettings(s, model)
         HorizontalDivider()
-        Text("개발 도구 · TEST", style = SafetyStepTokens.label)
-        CheckLine("TEST 위험 위치 공유", s.consent, model::setConsent, "share")
-        CheckLine("시험 서버 연결", s.online, model::setOnline, "network")
-        SecondaryAction("접근 차량 보기", "receiver-view") { model.receiverView(true); close() }
-        SecondaryAction("상태 초기화", "reset-demo") { model.newLocalDemo(); close() }
-        SecondaryAction("차량·음성 진단") { diagnostics() }
-        SecondaryAction("닫기") { close() }
+        SecondaryAction(if (developer) "개발 도구 접기" else "개발 도구", "developer-toggle") { developer = !developer }
+        if (developer) {
+            CheckLine("시험 서버 연결", s.online, model::setOnline, "network")
+            SecondaryAction("접근 차량 화면", "receiver-view") { model.receiverView(true); close() }
+            SecondaryAction("시험 상태 초기화", "reset-demo") { model.newLocalDemo(); close() }
+            SecondaryAction("차량·음성 진단", "diagnostics") { diagnostics() }
+        }
     }
 }

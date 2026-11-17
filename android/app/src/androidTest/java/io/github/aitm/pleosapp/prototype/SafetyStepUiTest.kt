@@ -51,7 +51,7 @@ class SafetyStepUiTest {
         capture("01-drive-dark")
         theme("light")
         capture("02-drive-light")
-        compose.onNodeWithTag("start-support").performScrollTo().performClick()
+        compose.onNodeWithTag("start-support").assertIsDisplayed().performClick()
         change { it.pauseVoice() }
         compose.onNodeWithTag("incident-dashboard").assertExists()
         compose.onNodeWithText("안전한 곳으로 이동하세요").assertExists()
@@ -111,7 +111,7 @@ class SafetyStepUiTest {
             assertEquals(ResponseState.UNCONFIRMED, model().state.value.incident!!.response)
             assertFalse(model().state.value.timerRunning)
         }
-        compose.onNodeWithTag("urgent-help").performScrollTo().assertHeightIsAtLeast(80.dp).performClick()
+        compose.onNodeWithTag("urgent-help").assertIsDisplayed().assertHeightIsAtLeast(80.dp).performClick()
         compose.onNodeWithTag("screen-HELP").assertExists()
         compose.onNodeWithTag("contact-phone").assertExists()
         compose.runOnIdle { assertEquals(HelpState.NEEDS_HELP, model().state.value.incident!!.help) }
@@ -119,7 +119,7 @@ class SafetyStepUiTest {
     }
 
     @Test fun receiverSettingIsSeparateFromSharingAndSurvivesRecreation() {
-        compose.onNodeWithTag("receiver-enabled").assertIsOff().performScrollTo().performClick()
+        compose.onNodeWithTag("receiver-enabled").assertIsOff().assertIsDisplayed().performClick()
         compose.runOnIdle {
             assertTrue(model().state.value.receiverEnabled)
             assertFalse(model().state.value.consent)
@@ -135,6 +135,15 @@ class SafetyStepUiTest {
         capture("08-receiver-unavailable-light")
         change { it.setReceiverEnabled(false) }
         compose.runOnIdle { assertEquals(ReceiverStatus.OFF, model().state.value.receiverStatus) }
+    }
+
+    @Test fun incomingSupportClosesSettingsWithoutAnotherTap() {
+        compose.onNodeWithTag("tools").performClick()
+        compose.onNodeWithTag("theme-light").assertExists()
+        change { it.begin(eventType = EventType.ACCIDENT, useVoice = false) }
+        compose.onNodeWithTag("theme-light").assertDoesNotExist()
+        compose.onNodeWithTag("incident-dashboard").assertIsDisplayed()
+        compose.onNodeWithTag("urgent-help").assertIsDisplayed()
     }
 
     @Test fun warningCompletionPersistsWithoutRestoringOldControlAuthority() {

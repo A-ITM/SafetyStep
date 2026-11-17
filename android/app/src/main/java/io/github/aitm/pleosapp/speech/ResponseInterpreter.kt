@@ -21,7 +21,9 @@ object ResponseInterpreter {
         val requestedHelp = !negatedRequest && listOf("도와줘", "도와주", "살려줘", "살려주").any(t::contains)
         val statedNeed = listOf("도움이필요", "도움필요", "도움이좀필요", "도움좀필요").any(t::contains) &&
             listOf("필요없", "필요는없", "필요가없", "필요하지않", "필요하지는않", "필요하지도않", "필요치않", "필요한건아니", "필요한것은아니").none(t::contains)
-        val need = cannotMove || requestedHelp || statedNeed
+        // Match the help action's direct statement, without expanding to uncertain/negated forms.
+        val directDifficulty = t in setOf("움직이기어려워요", "움직이기힘들어요")
+        val need = cannotMove || requestedHelp || statedNeed || directDifficulty
         val uncertain = listOf("없", "않", "못", "아니", "모르", "겠", "같", "힘들", "어렵").any(t::contains)
         val canMove = !uncertain && listOf("움직일수있어요", "움직일수있습니다", "움직일수있어", "걸을수있어요", "걸을수있습니다").any(t::contains)
         val help = when { need -> HelpState.NEEDS_HELP; canMove -> HelpState.CAN_MOVE; else -> HelpState.UNKNOWN }

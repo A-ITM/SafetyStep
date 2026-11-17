@@ -1,16 +1,26 @@
 package io.github.aitm.pleosapp.ui
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.aitm.pleosapp.location.ReportLocation
 import io.github.aitm.pleosapp.location.ReportLocationStatus
@@ -18,7 +28,6 @@ import io.github.aitm.pleosapp.prototype.*
 import io.github.aitm.pleosapp.speech.VoicePhase
 import java.util.Locale
 
-/** The first action, help, observed seats and reporting location stay on one surface. */
 @Composable
 internal fun IncidentDashboard(s: PrototypeUi, model: PrototypeViewModel) = IncidentDashboardContent(
     s,
@@ -30,119 +39,186 @@ internal fun IncidentDashboard(s: PrototypeUi, model: PrototypeViewModel) = Inci
     onRefreshLocation = model::refreshReportLocation,
 )
 
-@Composable internal fun IncidentDashboardContent(s: PrototypeUi, onHelp: () -> Unit, onVoice: () -> Unit, onRefreshLocation: () -> Unit) {
+/** Critical action stays visible; only the observation area scrolls on a short window. */
+@Composable
+internal fun IncidentDashboardContent(s: PrototypeUi, onHelp: () -> Unit, onVoice: () -> Unit, onRefreshLocation: () -> Unit) {
     val c = LocalSafetyColors.current
     val needsHelp = s.incident?.help == HelpState.NEEDS_HELP
-    val remaining = s.vehicle.seats.count { it.occupied.current(s.now) == true }
-    val unknownSeats = s.vehicle.seats.isEmpty() || s.vehicle.seats.any { it.occupied.current(s.now) == null }
-    Row(Modifier.fillMaxWidth().testTag("incident-dashboard"), horizontalArrangement = Arrangement.SpaceBetween) {
-        Text("내 차량 안전 지원", style = SafetyStepTokens.label, color = c.amber, fontWeight = FontWeight.SemiBold)
-        Text(if (s.vehicle.sample) "샘플 차량 상태" else if (s.supportQualified) "정차 확인" else "차량 상태 확인 중", style = SafetyStepTokens.caption, color = c.secondary)
-    }
-    Hero(when {
-        needsHelp -> "무리하게 움직이지 마세요"
-        !s.supportQualified -> "안전하게 정차해주세요"
-        s.cabinClearConfirmed -> "안전한 곳에 머무르세요"
-        else -> "안전한 곳으로 이동하세요"
-    }, when {
-        needsHelp -> "가능한 방법으로 도움을 요청하세요."
-        !s.supportQualified -> "차량이 멈춘 뒤 주변 상황을 살펴주세요."
-        s.cabinClearConfirmed -> "관측된 좌석은 비어 있어요. 차량으로 돌아가지 마세요."
-        else -> "주변을 살피고, 안전하게 내릴 수 있으면 가드레일 밖 등 안전한 곳으로 이동하세요."
-    })
-    if (needsHelp) {
-        ReportLocationCard(s.reportLocation, s.now, onRefreshLocation)
-        ContactActions()
-    }
-    SupportVoiceStatus(s, onVoice)
-    // Acknowledgement is optional; it never declares that the occupant can move.
-    if (!s.cabinClearConfirmed || needsHelp) LinkAction("도움이 필요해요", "urgent-help", c.red, onHelp)
-    CabinMap(s, preparing = true)
-    Column(Modifier.fillMaxWidth().testTag("bitbox-status"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        val hazard = s.vehicle.hazardLights.current(s.now)
-        StatusRow("비상등", when (hazard) {
-            true -> "켜짐 확인"
-            false -> "꺼짐 · 가능하면 켜주세요"
-            null -> "상태 확인 필요"
-        }, if (hazard == true) c.mint else c.amber, "bitbox-hazard")
-        StatusRow("좌석 관측", when {
-            remaining > 0 -> "잔류 감지 ${remaining}석 · 확인 필요"
-            unknownSeats -> "확인 안 된 좌석이 있어요"
-            else -> "관측 좌석 비움"
-        }, if (remaining > 0 || unknownSeats) c.amber else c.mint, "bitbox-exit")
-        Text("좌석 감지만으로 사람이나 물체를 구분할 수 없어요.", style = SafetyStepTokens.caption, color = c.secondary)
-    }
-    if (!needsHelp) ReportLocationCard(s.reportLocation, s.now, onRefreshLocation)
-    if (!needsHelp && !s.cabinClearConfirmed) ContactActions()
-    if (s.cabinClearConfirmed && !needsHelp) Text("안전한 곳에서 휴대전화로 상황과 위치를 알려주세요.", style = SafetyStepTokens.label, color = c.secondary)
-    RoadNotice(s)
-}
+    val bodyScroll = remember(s.incident?.id, s.incident?.help) { ScrollState(0) }
+    var voiceDetails by remember(s.incident?.id, s.incident?.help) { mutableStateOf(false) }
+    LaunchedEffect(s.drivingRestricted) { if (s.drivingRestricted) voiceDetails = false }
 
-@Composable private fun SupportVoiceStatus(s: PrototypeUi, onVoice: () -> Unit) {
-    val c = LocalSafetyColors.current
-    val active = s.voicePhase in listOf(VoicePhase.PREPARING, VoicePhase.SPEAKING, VoicePhase.LISTENING)
-    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(SafetyStepTokens.radius)).background(c.inset).padding(16.dp).testTag("support-voice"),
-        verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Canvas(Modifier.size(10.dp)) { drawCircle(if (s.voicePhase == VoicePhase.LISTENING) c.mint else c.blue) }
-            Text(when (s.voicePhase) {
-                VoicePhase.PREPARING -> "음성 연결 중"
-                VoicePhase.SPEAKING -> "안내를 듣고 주변을 살펴주세요"
-                VoicePhase.LISTENING -> "도움이 필요하면 말씀해주세요"
-                VoicePhase.UNAVAILABLE -> "음성 안내를 사용할 수 없어요"
-                VoicePhase.PAUSED -> "음성 안내가 중단됐어요"
-                else -> "안내 내용이 화면에 남아 있어요"
-            }, style = SafetyStepTokens.label, color = c.blue)
-        }
-        if (s.voiceDetail.isNotBlank()) Text(s.voiceDetail, style = SafetyStepTokens.caption, color = c.secondary)
-        TextButton(onClick = onVoice,
-            modifier = Modifier.fillMaxWidth().heightIn(min = SafetyStepTokens.touch).testTag("voice-action")) {
-            Text(if (active) "음성 잠시 멈추기" else "음성 응답 다시 시도", style = SafetyStepTokens.label)
-        }
-    }
-}
+    @Composable fun LocationSummary() = ReportLocationCard(
+        s.reportLocation, s.now, onRefreshLocation,
+        sessionId = s.incident?.id, help = s.incident?.help, drivingRestricted = s.drivingRestricted,
+    )
 
-@Composable private fun StatusRow(title: String, status: String, color: androidx.compose.ui.graphics.Color, tag: String) {
-    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(LocalSafetyColors.current.inset)
-        .padding(horizontal = 16.dp, vertical = 12.dp).testTag(tag),
-        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-        Text(title, style = SafetyStepTokens.label, fontWeight = FontWeight.SemiBold)
-        Spacer(Modifier.weight(1f))
-        Text(status, style = SafetyStepTokens.caption, color = color)
-    }
-}
-
-@Composable internal fun ReportLocationCard(location: ReportLocation, now: Long, refresh: () -> Unit) {
-    val c = LocalSafetyColors.current
-    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(SafetyStepTokens.radius)).background(c.inset).padding(20.dp).testTag("report-location"),
-        verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("신고할 때 알려줄 위치", style = SafetyStepTokens.action)
-        when (location.status) {
-            ReportLocationStatus.NOT_REQUESTED -> Text("위치를 확인해주세요.", style = SafetyStepTokens.label)
-            ReportLocationStatus.LOADING -> Text("신고 위치를 확인하고 있어요.", style = SafetyStepTokens.label)
-            ReportLocationStatus.UNAVAILABLE -> Text("위치를 확인하지 못했어요.", style = SafetyStepTokens.label, color = c.amber)
-            ReportLocationStatus.AVAILABLE -> {
-                if (location.sample) Text("샘플 위치 · 실제 신고에 사용하지 마세요", style = SafetyStepTokens.caption, color = c.amber)
-                location.address?.takeIf { it.isNotBlank() }?.let { Text(it, style = SafetyStepTokens.label) }
-                if (location.hasCoordinates) Text(String.format(Locale.KOREA, "위도 %.6f · 경도 %.6f", location.latitude, location.longitude),
-                    style = SafetyStepTokens.caption, modifier = Modifier.testTag("report-coordinates"))
-                location.receivedAt?.let { received ->
-                    val age = ((now - received).coerceAtLeast(0) / 1000)
-                    Text("${age}초 전 내비게이션에서 받은 위치", style = SafetyStepTokens.caption, color = c.secondary)
-                }
+    Column(Modifier.fillMaxSize().testTag("incident-dashboard")) {
+        Column(
+            Modifier.weight(1f).fillMaxWidth().verticalScroll(bodyScroll).padding(bottom = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(when {
-                    location.fixObservedAt == null && location.accuracyMeters == null -> "측위 시각·정확도 알 수 없음"
-                    location.fixObservedAt == null -> "측위 시각 알 수 없음"
-                    location.accuracyMeters == null -> "위치 정확도 알 수 없음"
-                    else -> "위치 정확도 약 ${location.accuracyMeters.toInt()} m"
-                }, style = SafetyStepTokens.caption, color = c.secondary)
-                Text("도로 진행 방향은 주변 표지로 확인해주세요.", style = SafetyStepTokens.caption, color = c.secondary)
+                    needsHelp -> "무리하게 움직이지 마세요"
+                    s.cabinClearConfirmed -> "차량으로 돌아가지 마세요"
+                    !s.supportQualified -> "안전하게 정차해주세요"
+                    else -> "안전한 곳으로 이동하세요"
+                }, style = SafetyStepTokens.hero)
+                Text(when {
+                    needsHelp -> "가능한 방법으로 도움을 요청하세요."
+                    s.cabinClearConfirmed -> "관측 좌석은 비어 있어요.\n안전한 곳에서 휴대전화로 상황을 알려주세요."
+                    !s.supportQualified -> "차량이 멈춘 뒤 주변 상황을 살펴주세요."
+                    else -> "주변을 살피고 안전하게 내릴 수 있으면\n가드레일 밖 등 안전한 곳으로 이동하세요."
+                }, style = SafetyStepTokens.label, color = c.secondary)
+            }
+            if (needsHelp) LocationSummary()
+            SupportVoiceStatus(s, onDetails = { voiceDetails = true })
+            CabinMap(s, preparing = true)
+            HazardReadStatus(s)
+            if (!needsHelp) LocationSummary()
+        }
+        if (needsHelp) {
+            Column(Modifier.fillMaxWidth().padding(top = 10.dp).testTag("support-actions")) { ContactActions() }
+        } else if (!s.cabinClearConfirmed) {
+            Box(Modifier.fillMaxWidth().padding(top = 10.dp).testTag("support-actions")) {
+                Action("움직이기 어려워요", "urgent-help") { onHelp() }
             }
         }
-        if (location.detail.isNotBlank() && location.status != ReportLocationStatus.AVAILABLE) Text(location.detail, style = SafetyStepTokens.caption, color = c.secondary)
-        TextButton(onClick = refresh, enabled = location.status != ReportLocationStatus.LOADING,
-            modifier = Modifier.fillMaxWidth().heightIn(min = SafetyStepTokens.touch).testTag("report-location-refresh")) {
-            Text("위치 다시 확인", style = SafetyStepTokens.label)
+    }
+    if (voiceDetails && !s.drivingRestricted) {
+        SafetyDialog("음성 안내", { voiceDetails = false }) {
+            Text(voiceLabel(s.voicePhase), style = SafetyStepTokens.action)
+            if (s.voiceDetail.isNotBlank()) Text(s.voiceDetail, style = SafetyStepTokens.label, color = c.secondary)
+            val active = s.voicePhase in listOf(VoicePhase.PREPARING, VoicePhase.SPEAKING, VoicePhase.LISTENING)
+            Action(if (active) "음성 잠시 멈추기" else "음성 응답 다시 시도", "voice-action") {
+                voiceDetails = false
+                onVoice()
+            }
+        }
+    }
+}
+
+@Composable private fun SupportVoiceStatus(s: PrototypeUi, onDetails: () -> Unit) {
+    val c = LocalSafetyColors.current
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = SafetyStepTokens.touch)
+            .clip(RoundedCornerShape(SafetyStepTokens.radius)).background(c.inset)
+            .padding(start = 14.dp, end = 4.dp).testTag("support-voice"),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        VoiceGlyph(s.voicePhase)
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(voiceLabel(s.voicePhase), style = SafetyStepTokens.label, color = c.blue)
+            if (s.voicePhase == VoicePhase.LISTENING) Text("마이크가 켜져 있어요", style = SafetyStepTokens.caption, color = c.secondary)
+        }
+        TextButton(onClick = onDetails, modifier = Modifier.width(80.dp).heightIn(min = SafetyStepTokens.touch).testTag("voice-details")) {
+            Text("음성", style = SafetyStepTokens.caption)
+        }
+    }
+}
+
+private fun voiceLabel(phase: VoicePhase): String = when (phase) {
+    VoicePhase.PREPARING -> "음성을 연결하고 있어요"
+    VoicePhase.SPEAKING -> "안내 음성 재생 중"
+    VoicePhase.LISTENING -> "도움이 필요하면 말씀해주세요"
+    VoicePhase.UNAVAILABLE -> "음성을 사용할 수 없어요"
+    VoicePhase.PAUSED -> "음성 일시 중지"
+    else -> "화면 안내를 확인해주세요"
+}
+
+@Composable private fun VoiceGlyph(phase: VoicePhase) {
+    val c = LocalSafetyColors.current
+    val listening = phase == VoicePhase.LISTENING
+    Canvas(Modifier.size(28.dp).semantics { contentDescription = if (listening) "마이크 켜짐" else "음성 상태" }) {
+        val color = if (listening) c.mint else c.blue
+        if (listening) {
+            val stroke = 2.dp.toPx()
+            drawRoundRect(color, Offset(size.width * .35f, size.height * .05f), Size(size.width * .3f, size.height * .53f),
+                CornerRadius(size.width * .16f), style = Stroke(stroke))
+            drawArc(color, 0f, 180f, false, Offset(size.width * .18f, size.height * .2f),
+                Size(size.width * .64f, size.height * .57f), style = Stroke(stroke, cap = StrokeCap.Round))
+            drawLine(color, Offset(size.width * .5f, size.height * .77f), Offset(size.width * .5f, size.height * .96f), stroke, StrokeCap.Round)
+            drawLine(color, Offset(size.width * .32f, size.height * .96f), Offset(size.width * .68f, size.height * .96f), stroke, StrokeCap.Round)
+        } else {
+            listOf(.25f to .35f, .5f to .7f, .75f to .48f).forEach { (x, height) ->
+                drawLine(color, Offset(size.width * x, size.height * (1 - height) / 2),
+                    Offset(size.width * x, size.height * (1 + height) / 2), 3.dp.toPx(), StrokeCap.Round)
+            }
+        }
+    }
+}
+
+@Composable private fun HazardReadStatus(s: PrototypeUi) {
+    val c = LocalSafetyColors.current
+    val hazard = s.vehicle.hazardLights.current(s.now)
+    Row(Modifier.fillMaxWidth().heightIn(min = 44.dp).testTag("bitbox-hazard"),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text(if (s.vehicle.sample) "비상등 · 샘플" else "비상등", style = SafetyStepTokens.label, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.weight(1f))
+        Text(when (hazard) { true -> "켜짐 확인"; false -> "꺼짐 · 가능하면 켜주세요"; null -> "상태 확인 필요" },
+            style = SafetyStepTokens.caption, color = if (hazard == true) c.mint else c.amber,
+            modifier = Modifier.weight(2f), textAlign = androidx.compose.ui.text.style.TextAlign.End)
+    }
+}
+
+@Composable
+internal fun ReportLocationCard(
+    location: ReportLocation,
+    now: Long,
+    refresh: () -> Unit,
+    sessionId: String? = null,
+    help: HelpState? = null,
+    drivingRestricted: Boolean = false,
+) {
+    val c = LocalSafetyColors.current
+    var details by remember(sessionId, help) { mutableStateOf(false) }
+    LaunchedEffect(drivingRestricted) { if (drivingRestricted) details = false }
+    val summary = when (location.status) {
+        ReportLocationStatus.NOT_REQUESTED -> "위치 확인이 필요해요"
+        ReportLocationStatus.LOADING -> "위치를 확인하고 있어요"
+        ReportLocationStatus.UNAVAILABLE -> "위치를 확인하지 못했어요"
+        ReportLocationStatus.AVAILABLE -> location.address?.takeIf { it.isNotBlank() }
+            ?: if (location.hasCoordinates) String.format(Locale.KOREA, "%.6f, %.6f", location.latitude, location.longitude)
+            else "위치 확인이 필요해요"
+    }
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(SafetyStepTokens.radius)).background(c.inset)
+        .padding(start = 14.dp, end = 4.dp, top = 8.dp, bottom = 10.dp).testTag("report-location"),
+        verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("신고할 때 참고할 위치", style = SafetyStepTokens.caption, color = c.secondary)
+                if (location.sample) Text("샘플 위치", style = SafetyStepTokens.caption, color = c.amber, fontWeight = FontWeight.SemiBold)
+                Text(summary, style = SafetyStepTokens.label, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                    color = if (location.status == ReportLocationStatus.UNAVAILABLE) c.amber else c.text)
+            }
+            TextButton(onClick = { details = true }, enabled = !drivingRestricted,
+                modifier = Modifier.width(136.dp).heightIn(min = SafetyStepTokens.touch).testTag("report-location-details")) {
+                Text("위치 자세히", style = SafetyStepTokens.caption)
+            }
+        }
+        Text("정확한 위치는 주변 표지로 확인하세요", style = SafetyStepTokens.caption, color = c.secondary,
+            modifier = Modifier.padding(end = 10.dp))
+    }
+    if (details && !drivingRestricted) {
+        SafetyDialog("신고 위치", { details = false }) {
+            if (location.sample) Text("샘플 위치 · 실제 신고에 사용하지 마세요", style = SafetyStepTokens.label, color = c.amber)
+            Text(summary, style = SafetyStepTokens.action)
+            if (location.hasCoordinates) Text(String.format(Locale.KOREA, "위도 %.6f · 경도 %.6f", location.latitude, location.longitude),
+                style = SafetyStepTokens.label, modifier = Modifier.testTag("report-coordinates"))
+            location.receivedAt?.let { received ->
+                Text("${(now - received).coerceAtLeast(0) / 1000}초 전 내비게이션에서 받은 위치", style = SafetyStepTokens.caption, color = c.secondary)
+            }
+            Text(when {
+                location.fixObservedAt == null && location.accuracyMeters == null -> "측위 시각·정확도 알 수 없음"
+                location.fixObservedAt == null -> "측위 시각 알 수 없음"
+                location.accuracyMeters == null -> "위치 정확도 알 수 없음"
+                else -> "위치 정확도 약 ${location.accuracyMeters.toInt()} m"
+            }, style = SafetyStepTokens.label)
+            Text("도로 진행 방향은 주변 표지로 확인해주세요.", style = SafetyStepTokens.label)
+            if (location.detail.isNotBlank()) Text(location.detail, style = SafetyStepTokens.caption, color = c.secondary)
+            Action("위치 다시 확인", "report-location-refresh", enabled = location.status != ReportLocationStatus.LOADING, action = refresh)
         }
     }
 }
