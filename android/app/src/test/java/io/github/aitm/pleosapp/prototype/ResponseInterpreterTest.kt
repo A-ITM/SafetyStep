@@ -36,14 +36,30 @@ class ResponseInterpreterTest {
             assertFalse(text, heard.acknowledged)
         }
     }
+    @Test fun directDifficultyMatchesTheHelpActionWithoutInferringNegatedOrUncertainDifficulty() {
+        for (text in listOf("움직이기 어려워요", "움직이기어려워요!", "움직이기 힘들어요")) {
+            val heard = ResponseInterpreter.interpret(text)
+            assertEquals(text, HelpState.NEEDS_HELP, heard.help)
+            assertTrue(text, heard.acknowledged)
+            assertEquals(text, Responder.UNKNOWN, heard.responder)
+        }
+        for (text in listOf("움직이기 어렵지 않아요", "움직이기 어려울 것 같아요", "움직이기 어려운 건 아니에요",
+            "움직이기 힘들지 않아요", "움직이기 힘들 것 같아요", "움직이기 어려워요는 아니에요")) {
+            val heard = ResponseInterpreter.interpret(text)
+            assertEquals(text, HelpState.UNKNOWN, heard.help)
+            assertFalse(text, heard.acknowledged)
+        }
+    }
     @Test fun lateHelpOverridesPriorAcknowledgementOrMobilityWithoutChangingRoadLifecycle() {
         for (prior in listOf(HelpState.UNKNOWN, HelpState.CAN_MOVE)) {
-            val incident = Incident("late-help", 1_000, "MANUAL_TEST").respond(Responder.DRIVER, prior).resolve()
-            val heard = ResponseInterpreter.interpret("도와 줘")
-            val updated = incident.respond(heard.responder, heard.help)
-            assertEquals(HelpState.NEEDS_HELP, updated.help)
-            assertEquals(HazardState.RESOLVED, updated.hazard)
-            assertEquals(incident.id, updated.id)
+            for (text in listOf("도와 줘", "움직이기 어려워요", "움직이기 힘들어요")) {
+                val incident = Incident("late-help", 1_000, "MANUAL_TEST").respond(Responder.DRIVER, prior).resolve()
+                val heard = ResponseInterpreter.interpret(text)
+                val updated = incident.respond(heard.responder, heard.help)
+                assertEquals(text, HelpState.NEEDS_HELP, updated.help)
+                assertEquals(text, HazardState.RESOLVED, updated.hazard)
+                assertEquals(text, incident.id, updated.id)
+            }
         }
     }
 }

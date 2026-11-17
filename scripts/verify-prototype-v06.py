@@ -7,6 +7,7 @@ The existing Virtual Console HTTP API supplies emulator-only vehicle signals.
 import argparse
 import json
 import pathlib
+import shlex
 import subprocess
 import threading
 import time
@@ -42,8 +43,12 @@ class Harness:
         })
 
     def adb(self, *parts):
+        # adb shell reparses its arguments remotely; preserve spaces in injected speech.
+        arguments = list(map(str, parts))
+        if arguments and arguments[0] == "shell":
+            arguments = ["shell", shlex.join(arguments[1:])]
         return subprocess.check_output(
-            [str(self.args.adb), "-s", self.args.serial, *map(str, parts)],
+            [str(self.args.adb), "-s", self.args.serial, *arguments],
             timeout=25,
         )
 
