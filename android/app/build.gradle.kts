@@ -26,8 +26,8 @@ android {
         applicationId = "io.github.aitm.pleosapp"
         minSdk = 28
         targetSdk = 35
-        versionCode = 6
-        versionName = "0.6.0-safetystep"
+        versionCode = 7
+        versionName = "0.7.0-safetystep"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "SUPABASE_URL", "\"${supabaseUrl.trimEnd('/')}\"")
         buildConfigField("String", "VEHICLE_SDK_VERSION", "\"${libs.versions.vehicle.get()}\"")
@@ -59,6 +59,7 @@ android {
         compose = true
         buildConfig = true
     }
+    sourceSets.getByName("test").resources.srcDir(rootProject.file("../docs/contracts/fixtures"))
     sourceSets.getByName("androidTest").assets.srcDir(rootProject.file("../docs/contracts/fixtures"))
     packaging { resources.excludes += "/META-INF/{AL2.0,LGPL2.1}" }
 }
@@ -81,6 +82,7 @@ dependencies {
     "pleosDebugImplementation"(libs.pleos.tts)
     "pleosDebugImplementation"(libs.pleos.stt)
     testImplementation("junit:junit:4.13.2")
+    testImplementation("com.vaadin.external.google:android-json:0.0.20131108.vaadin1")
     androidTestImplementation("androidx.test:runner:1.6.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation(platform(libs.androidx.compose.bom))
