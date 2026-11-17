@@ -61,6 +61,7 @@ data class PrototypeUi(
     val voicePurpose: String = "GUIDANCE",
     val drivingRestricted: Boolean = BuildConfig.FLAVOR == "pleos",
     val cabinClearConfirmed: Boolean = false,
+    val cabinEmptyReadingComplete: Boolean = false,
     val occupiedSeatAreas: Set<Int> = emptySet(),
     val hazardAction: ControlState = ControlState.IDLE,
     val hazardCommands: Int = 0,
@@ -101,9 +102,11 @@ class PrototypeViewModel(application: Application) : AndroidViewModel(applicatio
     private val crossedIds = mutableSetOf<String>()
     private val operatorPcmQueue = ArrayDeque<ByteArray>()
     private val restoredIncident = store.incident()
+    private val restoredJourney = store.journey(restoredIncident?.id)
     private val mutable = MutableStateFlow(PrototypeUi(
         incident = restoredIncident, consent = store.consent, pending = outbox.size,
-        theme = store.theme, journey = store.journey(restoredIncident?.id), receiverEnabled = store.receiverEnabled,
+        theme = store.theme, journey = restoredJourney, cabinClearConfirmed = restoredJourney.quietConfirmedAt != null,
+        receiverEnabled = store.receiverEnabled,
         receiverStatus = if (store.receiverEnabled) ReceiverStatus.PAUSED else ReceiverStatus.OFF,
         receiverDetail = if (store.receiverEnabled) "앱을 열면 수신을 재개해요" else "위험 알림 수신이 꺼져 있어요",
         stopReportId = sharedEvent?.id,
@@ -133,8 +136,6 @@ class PrototypeViewModel(application: Application) : AndroidViewModel(applicatio
     private var firstActionComplete: String? = null
     private var firstActionAttempted: String? = null
     private var firstActionRequested = true
-    private var listeningAttempted: String? = null
-    private var guidanceOutside: String? = null
     private var supportInputElapsed = mutableMapOf<String, Long>()
     private var firstEvidenceElapsed = mutableMapOf<String, Long>()
     private var reportJob: Job? = null
@@ -160,6 +161,7 @@ class PrototypeViewModel(application: Application) : AndroidViewModel(applicatio
 
 
     init {
+        restoredJourney.quietConfirmedAt?.let(cabinClearGate::restoreQuiet)
         gateway.watchDrivingRestrictions { restricted -> viewModelScope.launch { mutable.update { it.copy(drivingRestricted = restricted) } } }
         if (BuildConfig.DEBUG) viewModelScope.launch {
             while (true) { writeOperatorState(); delay(500) }
@@ -213,6 +215,7 @@ class PrototypeViewModel(application: Application) : AndroidViewModel(applicatio
             put("trunkOpen", s.vehicle.trunkOpen.current(s.now) ?: JSONObject.NULL); put("occupied", s.vehicle.driverOccupied.current(s.now) ?: JSONObject.NULL)
             put("occupancyDetail", s.vehicle.driverOccupied.detail); put("belt", s.vehicle.driverBelt.current(s.now) ?: JSONObject.NULL)
             put("cabinPresence", CabinPolicy.presence(s.vehicle.seats, s.now).name); put("cabinClearConfirmed", s.cabinClearConfirmed)
+            put("cabinEmptyReadingComplete", s.cabinEmptyReadingComplete)
             put("stationary", supportStationary()); put("occupiedSeatAreas", JSONArray(s.occupiedSeatAreas.sorted())); put("sample", s.vehicle.sample)
             put("seats", JSONArray(s.vehicle.seats.map { seat -> JSONObject().put("area", seat.area).put("label", seat.label)
                 .put("occupied", seat.occupied.current(s.now) ?: JSONObject.NULL).put("detail", seat.occupied.detail) }))
@@ -260,23 +263,35 @@ class PrototypeViewModel(application: Application) : AndroidViewModel(applicatio
                 response = existing.response, responder = existing.responder, help = HelpState.NEEDS_HELP,
             ) else next
         }
-        updateIncident(incident); journey(SupportJourney()); cabinClearGate.reset()
-        firstActionComplete = null; firstActionAttempted = null; listeningAttempted = null; firstActionRequested = useVoice
+        val previousJourney = state.value.journey.takeIf { existing != null }
+        val quietAt = previousJourney?.quietConfirmedAt
+        updateIncident(incident)
+        journey(SupportJourney(quietConfirmedAt = quietAt,
+            passengerReminderAttempted = previousJourney?.passengerReminderAttempted == true))
+        if (existing == null) {
+            cabinClearGate.reset()
+            cabinClearGate.update(state.value.vehicle.seats, now)
+        }
+        firstActionComplete = null; firstActionAttempted = null; firstActionRequested = useVoice
         supportInputElapsed[incident.id] = elapsed; firstEvidenceElapsed[incident.id] = minOf(elapsed, firstStopElapsed ?: elapsed)
-        mutable.update { it.copy(receiverView = false, cabinClearConfirmed = false, occupiedSeatAreas = it.vehicle.seats.filter { seat -> seat.occupied.current(now) == true }.map { seat -> seat.area }.toSet()) }
+        mutable.update { it.copy(receiverView = false, cabinClearConfirmed = quietAt != null, occupiedSeatAreas = it.occupiedSeatAreas + it.vehicle.seats.filter { seat -> seat.occupied.current(now) == true }.map { seat -> seat.area }) }
         metrics.record("support_input", sharedEvent?.id, incident.id, details = mapOf("source" to source, "eventType" to type.name))
         refreshReportLocation(); updateSupportQualification(); maybeShare()
         log("지원 입력 접수 · 정차 관측 뒤 행동 안내 · 차량 제어 없음")
     }
     private fun supportStationary(): Boolean {
         val now = System.currentTimeMillis()
-        // An explicit TEST sample, including unknown speed, takes precedence over SDK data.
-        return currentPosition?.let { it.valid(now) && it.speedMps?.let { speed -> speed <= .5 } == true }
-            ?: state.value.vehicle.speedMps.current(now)?.let { it >= 0f && it <= .5f } == true
+        val vehicleSpeed = state.value.vehicle.speedMps.current(now)
+        if (vehicleSpeed != null && vehicleSpeed > .5f) return false
+        return currentPosition?.let { it.valid(now) && it.speedMps?.let { speed -> speed in 0.0..0.5 } == true }
+            ?: (vehicleSpeed != null && vehicleSpeed in 0f..0.5f)
     }
     private fun updateSupportQualification() {
         val qualified = state.value.incident != null && supportStationary()
-        if (!qualified && state.value.supportQualified && voiceMetricPurpose == "support_voice") stopVoice()
+        if (!qualified && state.value.supportQualified && voiceMetricPurpose in setOf("support_voice", "exception_listen", "passenger_reminder")) {
+            if (voiceMetricPurpose == "support_voice") firstActionAttempted = null
+            stopVoice()
+        }
         mutable.update { it.copy(supportQualified = qualified, now = System.currentTimeMillis()) }
         if (qualified && firstActionRequested && firstActionAttempted != state.value.incident?.id) startFirstAction()
     }
@@ -297,13 +312,13 @@ class PrototypeViewModel(application: Application) : AndroidViewModel(applicatio
     }
     private fun startFirstAction() {
         val s = state.value; val incident = s.incident ?: return
-        if (!foreground || !s.supportQualified || !firstActionRequested || firstActionAttempted == incident.id) return
+        if (!foreground || s.cabinClearConfirmed || !s.supportQualified || !firstActionRequested || firstActionAttempted == incident.id) return
         firstActionAttempted = incident.id
         stopVoice(); val token = voiceToken
         voiceIncidentId = sharedEvent?.id ?: incident.id; voiceMetricPurpose = "support_voice"
         mutable.update { it.copy(voicePhase = VoicePhase.PREPARING, voicePurpose = "GUIDANCE", voiceDetail = "", voiceInput = "NONE") }
         val prompt = if (incident.help == HelpState.NEEDS_HELP) "무리하게 움직이지 마세요. 가능한 방법으로 도움을 요청하세요."
-            else "주변을 살피고, 안전하게 내릴 수 있으면 가드레일 밖 등 안전한 곳으로 이동하세요."
+            else CabinGuidance.EXIT
         voiceJob = viewModelScope.launch {
             var started = false
             val result = try {
@@ -330,7 +345,7 @@ class PrototypeViewModel(application: Application) : AndroidViewModel(applicatio
                 // The hazard-lights reminder is separate and makes no control/success claim.
                 val hazard = state.value.vehicle.hazardLights.current(System.currentTimeMillis())
                 mutable.update { it.copy(hazardDetail = when (hazard) { true -> "비상등 켜짐을 관측했어요"; false -> "안전하게 조작할 수 있으면 비상등을 켜세요"; null -> "비상등 상태를 확인하지 못했어요" }) }
-                requestVoice()
+                if (!startPassengerReminder()) requestVoice()
             } else {
                 val detail = (result as? VoiceResult.Failed)?.detail ?: "음성 안내 완료를 확인하지 못했어요"
                 metrics.record("support_voice_failed", sharedEvent?.id, incident.id, details = mapOf("reason" to detail.take(160)))
@@ -339,9 +354,45 @@ class PrototypeViewModel(application: Application) : AndroidViewModel(applicatio
             }
         }
     }
+    private fun reminderApplies(s: PrototypeUi): Boolean =
+        foreground && !s.cabinClearConfirmed && supportStationary() && !s.journey.callSimulation &&
+            s.incident != null && s.incident.help != HelpState.NEEDS_HELP &&
+            CabinPolicy.passengerRemains(s.vehicle.seats, System.currentTimeMillis(), s.occupiedSeatAreas)
+
+    private fun startPassengerReminder(): Boolean {
+        val s = state.value
+        val incident = s.incident ?: return false
+        if (!reminderApplies(s) || s.journey.passengerReminderAttempted || firstActionComplete != incident.id ||
+            !firstActionRequested || !speech.available || s.voicePhase == VoicePhase.PAUSED) return false
+        journey(s.journey.copy(passengerReminderAttempted = true))
+        val token = voiceToken
+        voiceIncidentId = incident.id
+        voiceMetricPurpose = "passenger_reminder"
+        mutable.update { it.copy(voicePhase = VoicePhase.PREPARING, voicePurpose = "PASSENGER", voiceInput = "NONE") }
+        voiceJob = viewModelScope.launch {
+            val result = try {
+                speech.say(CabinGuidance.PASSENGER) { phase ->
+                    if (voiceToken == token) {
+                        mutable.update { it.copy(voicePhase = phase) }
+                        if (phase == VoicePhase.SPEAKING) metrics.record("passenger_reminder_start", supportSessionId = incident.id)
+                    }
+                }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (error: Exception) { VoiceResult.Failed(error.message ?: "음성 안내 실패") }
+            if (voiceToken != token || state.value.incident?.id != incident.id) return@launch
+            voiceIncidentId = null
+            voiceMetricPurpose = null
+            val spoken = result == VoiceResult.Spoken
+            metrics.record(if (spoken) "passenger_reminder_complete" else "passenger_reminder_failed", supportSessionId = incident.id)
+            mutable.update { it.copy(voicePhase = if (spoken) VoicePhase.COMPLETE else VoicePhase.UNAVAILABLE) }
+            if (reminderApplies(state.value)) requestVoice()
+        }
+        return true
+    }
+
     fun requestVoice(testPcm: ByteArray? = null) {
         val s = state.value; val incident = s.incident ?: return
-        if (!foreground || s.journey.callSimulation) return
+        if (!foreground || s.cabinClearConfirmed || s.journey.callSimulation || !supportStationary()) return
         if (firstActionComplete != incident.id) {
             if (testPcm != null) operatorPcmQueue.addFirst(testPcm)
             if (firstActionAttempted == incident.id && voiceJob?.isActive == true) return
@@ -350,7 +401,8 @@ class PrototypeViewModel(application: Application) : AndroidViewModel(applicatio
         if (s.voicePhase == VoicePhase.LISTENING || s.voicePhase == VoicePhase.SPEAKING) return
         stopVoice(); val token = voiceToken
         val pcm = testPcm ?: operatorPcmQueue.removeFirstOrNull()
-        listeningAttempted = incident.id
+        voiceIncidentId = incident.id
+        voiceMetricPurpose = "exception_listen"
         updateIncident(incident.beginResponse())
         mutable.update { it.copy(voicePhase = VoicePhase.PREPARING, voicePurpose = "EXCEPTION", voiceText = "", voiceDetail = "", voiceInput = if (pcm == null) "MICROPHONE" else "SYNTHETIC_PCM") }
         voiceJob = viewModelScope.launch {
@@ -362,6 +414,8 @@ class PrototypeViewModel(application: Application) : AndroidViewModel(applicatio
             catch (cancelled: CancellationException) { throw cancelled }
             catch (error: Exception) { VoiceResult.Failed(error.message ?: "청취 실패") }
             if (voiceToken != token || state.value.incident?.id != incident.id) return@launch
+            voiceMetricPurpose = null
+            voiceIncidentId = null
             when (result) {
                 is VoiceResult.Text -> acceptSpeech(result.text, false)
                 is VoiceResult.Failed -> {
@@ -398,7 +452,7 @@ class PrototypeViewModel(application: Application) : AndroidViewModel(applicatio
     }
     private fun saySupportException() {
         val incident = state.value.incident ?: return
-        if (!foreground || !speech.available) return
+        if (!foreground || state.value.cabinClearConfirmed || !speech.available) return
         val token = voiceToken
         mutable.update { it.copy(voicePurpose = "HELP", voicePhase = VoicePhase.PREPARING) }
         voiceJob = viewModelScope.launch {
@@ -566,7 +620,7 @@ class PrototypeViewModel(application: Application) : AndroidViewModel(applicatio
                 status.first != ReceiverStatus.ACTIVE || cards.none { it.incidentId == voiceIncidentId && it.freshness == EventFreshness.FRESH })) stopVoice()
         if (previewEvent != null || !foreground || status.first != ReceiverStatus.ACTIVE || voiceJob?.isActive == true) return
         // Local occupant support has priority over approach warnings, including urgent help.
-        if (state.value.incident != null && (!state.value.cabinClearConfirmed || state.value.incident?.help == HelpState.NEEDS_HELP || state.value.journey.callSimulation)) return
+        if (state.value.incident != null) return
         val event = snapshot.events.sortedBy { it.meters - p!!.meters }.firstOrNull { event ->
             val card = cards.firstOrNull { it.incidentId == event.id }
             card != null && card.freshness == EventFreshness.FRESH && !card.voiceHeld && event.id !in spokenIds &&
@@ -606,11 +660,11 @@ class PrototypeViewModel(application: Application) : AndroidViewModel(applicatio
     private fun maybeSpeakNearbyAccident() {
         val s = state.value
         val geo = s.accidentNetwork
-        val occupantNeedsSupport = s.incident != null && (!s.cabinClearConfirmed || s.incident.help == HelpState.NEEDS_HELP)
-        if (voiceMetricPurpose == "geo_warning" && (occupantNeedsSupport || geo.receiverStatus != ReceiverStatus.ACTIVE ||
+        val localIncidentActive = s.incident != null
+        if (voiceMetricPurpose == "geo_warning" && (localIncidentActive || geo.receiverStatus != ReceiverStatus.ACTIVE ||
                 geo.nearby.none { it.event.id == voiceIncidentId && it.freshness == EventFreshness.FRESH })) stopVoice()
         if (!foreground || !speech.available || geo.receiverStatus != ReceiverStatus.ACTIVE || voiceJob?.isActive == true) return
-        if (occupantNeedsSupport) return
+        if (localIncidentActive) return
         val notice = geo.nearby.filter { it.freshness == EventFreshness.FRESH && it.distanceMeters != null }
             .sortedBy { it.distanceMeters }.firstOrNull { !accidentCoordinator.wasSpoken(it.event.id) && (voiceAttempts[it.event.id] ?: 0) < 2 } ?: return
         val id = notice.event.id
@@ -638,6 +692,7 @@ class PrototypeViewModel(application: Application) : AndroidViewModel(applicatio
         foreground = value; contextGeneration++; snapshot.invalidate(); stopPolicy.reset(); latestStop = StopObservation(null, false)
         syncAccidentContext()
         if (!value) {
+            cabinClearGate.update(emptyList(), System.currentTimeMillis())
             pauseVoice(); vehicleJob?.cancel(); vehicleJob = null; uploaderJob?.cancel(); uploaderJob = null; receiverJob?.cancel(); receiverJob = null
             evaluateReceiver(); return
         }
@@ -733,20 +788,34 @@ class PrototypeViewModel(application: Application) : AndroidViewModel(applicatio
             val facts = gateway.readSnapshot(); val now = System.currentTimeMillis(); val s = state.value
             val observed = s.occupiedSeatAreas + facts.seats.filter { it.occupied.current(now) == true }.map { it.area }
             // Only observed seat areas can participate in departure/empty confirmation.
-            val clear = s.incident != null && facts.seats.isNotEmpty() && cabinClearGate.update(facts.seats, now)
+            val clear = s.incident != null && cabinClearGate.update(facts.seats, now)
             mutable.update { it.copy(vehicle = facts, now = now, occupiedSeatAreas = if (s.incident == null) emptySet() else observed,
-                cabinClearConfirmed = clear, hazardDetail = when (facts.hazardLights.current(now)) {
+                cabinClearConfirmed = clear, cabinEmptyReadingComplete = clear && cabinClearGate.reliableEmptyNow(facts.seats, now),
+                hazardDetail = when (facts.hazardLights.current(now)) {
                     true -> "비상등 켜짐을 관측했어요"; false -> "안전하게 조작할 수 있으면 비상등을 켜세요"; null -> "비상등 상태를 확인하지 못했어요" }) }
             if (s.incident != null) {
-                journey(state.value.journey.copy(stationaryConfirmed = supportStationary(), departureDeclared = state.value.journey.departureDeclared || BitboxPolicy.somebodyLeft(facts, observed, now)))
-                if (clear && guidanceOutside != s.incident.id && foreground && firstActionComplete == s.incident.id && s.incident.help != HelpState.NEEDS_HELP) {
-                    guidanceOutside = s.incident.id
-                    // Keep the visible location/support panel; no command or automatic call is made.
-                    log("관측 좌석의 비움을 확인했어요 · 차량으로 돌아가지 말고 안전한 곳에 머무르세요")
+                val next = s.journey.copy(stationaryConfirmed = supportStationary(), quietConfirmedAt = cabinClearGate.quietConfirmedAt,
+                    departureDeclared = s.journey.departureDeclared || BitboxPolicy.somebodyLeft(facts, observed, now))
+                if (next != s.journey) journey(next)
+                if (clear && !s.cabinClearConfirmed) {
+                    stopVoice()
+                    operatorPcmQueue.clear()
+                    mutable.update { it.copy(voiceInput = "NONE", voicePurpose = "NONE", voiceDetail = "", voiceText = "") }
+                    metrics.record("cabin_quiet_enter", supportSessionId = s.incident.id)
+                } else if (s.cabinClearConfirmed && !clear) {
+                    firstActionAttempted = null
+                    firstActionComplete = null
+                    metrics.record("cabin_occupied_again", supportSessionId = s.incident.id)
                 }
+                if (voiceMetricPurpose == "passenger_reminder" && !reminderApplies(state.value)) stopVoice()
+                if (voiceJob?.isActive != true) startPassengerReminder()
             }
         } catch (cancelled: CancellationException) { throw cancelled }
-        catch (error: Exception) { log("차량 상태 조회 실패: ${error.message}") }
+        catch (error: Exception) {
+            cabinClearGate.update(emptyList(), System.currentTimeMillis())
+            mutable.update { it.copy(cabinEmptyReadingComplete = false) }
+            log("차량 상태 조회 실패: ${error.message}")
+        }
         finally { mutable.update { it.copy(vehicleBusy = false) } }
     }
     fun checkSdk() {
@@ -771,7 +840,7 @@ class PrototypeViewModel(application: Application) : AndroidViewModel(applicatio
     fun newLocalDemo() {
         reportJob?.cancel(); reportJob = null
         stopVoice(); operatorPcmQueue.clear(); cabinClearGate.reset(); voicePolicy.reset(); stopPolicy.reset()
-        firstActionComplete = null; firstActionAttempted = null; listeningAttempted = null; guidanceOutside = null; firstActionRequested = true
+        firstActionComplete = null; firstActionAttempted = null; firstActionRequested = true
         latestStop = StopObservation(null, false); firstStopUtc = null; firstStopElapsed = null
         sharedEvent = null; store.saveTransport(null, StopReportStatus.NONE, outbox); store.saveIncident(null); store.saveJourney(null, SupportJourney())
         previewEvent = null; currentPosition = null; contextGeneration++; snapshot.invalidate(clearDisplay = true)
@@ -779,7 +848,7 @@ class PrototypeViewModel(application: Application) : AndroidViewModel(applicatio
         metrics.runId = "run-${UUID.randomUUID()}"
         mutable.update { it.copy(incident = null, journey = SupportJourney(), receiverView = false, previewHazard = false,
             supportQualified = false, stopReportId = null, stopReportStatus = StopReportStatus.NONE, stopReportDetail = "새 TEST 정차 관측 전",
-            voiceText = "", voiceDetail = "", voiceInput = "NONE", cabinClearConfirmed = false, occupiedSeatAreas = emptySet(), hazardCommands = 0) }
+            voiceText = "", voiceDetail = "", voiceInput = "NONE", cabinClearConfirmed = false, cabinEmptyReadingComplete = false, occupiedSeatAreas = emptySet(), hazardCommands = 0) }
         syncAccidentContext(); accidentCoordinator.liveLocation()
         evaluateReceiver(); metrics.record("scenario_reset"); log("새 로컬 시험 · 기존 서버 사건은 유지돼요")
     }

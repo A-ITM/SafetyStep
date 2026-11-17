@@ -67,7 +67,7 @@ class SupportPolicyTest {
 
     @Test fun helpSurvivesRoadTerminationAndClearCabin() {
         val help = incident.respond(Responder.PASSENGER, HelpState.NEEDS_HELP).resolve()
-        assertEquals(SupportScreen.HELP, SupportPolicy.screen(help, ready, cabinClear = true))
+        assertEquals(SupportScreen.MONITORING, SupportPolicy.screen(help, ready, cabinClear = true))
         assertEquals(HelpState.NEEDS_HELP, help.help)
     }
 }

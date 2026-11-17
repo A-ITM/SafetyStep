@@ -31,13 +31,15 @@ data class SupportJourney(
     val trunkAttempts: Int = 0,
     val rearClearConfirmed: Boolean = false,
     val autoTrunkClaimed: Boolean = false,
+    val quietConfirmedAt: Long? = null,
+    val passengerReminderAttempted: Boolean = false,
 )
 
 object SupportPolicy {
     fun screen(incident: Incident?, journey: SupportJourney, cabinClear: Boolean = false): SupportScreen = when {
         incident == null -> SupportScreen.DRIVE
-        journey.callSimulation || incident.help == HelpState.NEEDS_HELP -> SupportScreen.HELP
         cabinClear -> SupportScreen.MONITORING
+        journey.callSimulation || incident.help == HelpState.NEEDS_HELP -> SupportScreen.HELP
         incident.evacuated || (journey.departureDeclared && incident.help == HelpState.CAN_MOVE) -> SupportScreen.SUPPORT
         incident.response == ResponseState.RESPONDED && incident.help == HelpState.CAN_MOVE -> SupportScreen.EVACUATION
         incident.response == ResponseState.RESPONDED -> SupportScreen.MOBILITY
@@ -59,4 +61,9 @@ object SupportPolicy {
         !finalConfirmation -> "트렁크 주변 공간과 열기 의사를 확인해주세요."
         else -> null
     }
+}
+
+object CabinGuidance {
+    const val EXIT = "안전하게 내릴 수 있으면 가드레일 밖 등 안전한 곳으로 대피하세요. 안전한 곳에 도착한 뒤 휴대전화로 신고하세요."
+    const val PASSENGER = "아직 차 안에 계시다면, 안전하게 내릴 수 있을 때 가드레일 밖 등 안전한 곳으로 대피하세요. 이동이 어렵다면 도움을 요청하세요."
 }
