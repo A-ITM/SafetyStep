@@ -174,12 +174,16 @@ class PrototypeStore(context: Context, preferencesName: String = "prototype") {
         val o = JSONObject(prefs.getString("journey", "{}")!!)
         if (incidentId == null || o.optString("incidentId") != incidentId) return SupportJourney()
         SupportJourney(collision = CollisionContext.valueOf(o.optString("collision", "UNKNOWN")),
+            quietConfirmedAt = o.optLong("quietConfirmedAt", 0L).takeIf { it > 0L },
+            passengerReminderAttempted = o.optBoolean("passengerReminderAttempted"),
             departureDeclared = o.optBoolean("departureDeclared"), trunk = ControlState.HELD,
             trunkNote = "이 프로토타입에서는 트렁크를 제어하지 않아요")
     }.getOrDefault(SupportJourney())
     fun saveJourney(incidentId: String?, value: SupportJourney) {
         val o = JSONObject().put("incidentId", incidentId).put("collision", value.collision.name)
             .put("departureDeclared", value.departureDeclared)
+            .put("quietConfirmedAt", value.quietConfirmedAt)
+            .put("passengerReminderAttempted", value.passengerReminderAttempted)
         prefs.edit().putString("journey", o.toString()).apply()
     }
 }

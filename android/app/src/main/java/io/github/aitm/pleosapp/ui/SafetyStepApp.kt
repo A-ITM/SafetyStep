@@ -39,8 +39,9 @@ fun SafetyStepApp(model: PrototypeViewModel, diagnostics: @Composable () -> Unit
     var diagnostic by rememberSaveable { mutableStateOf(false) }
     var tools by rememberSaveable { mutableStateOf(false) }
     var lastIncidentId by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(s.drivingRestricted) {
-        if (s.drivingRestricted) { tools = false; diagnostic = false }
+    val cabinQuiet = s.incident != null && s.cabinClearConfirmed
+    LaunchedEffect(s.drivingRestricted, cabinQuiet) {
+        if (s.drivingRestricted || cabinQuiet) { tools = false; diagnostic = false }
     }
     LaunchedEffect(s.incident?.id, s.incident?.help) {
         val id = s.incident?.id
@@ -55,17 +56,18 @@ fun SafetyStepApp(model: PrototypeViewModel, diagnostics: @Composable () -> Unit
             BoxWithConstraints(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
                 val padding = if (maxWidth < 600.dp) SafetyStepTokens.compactGutter else SafetyStepTokens.gutter
                 Column(Modifier.fillMaxSize().padding(horizontal = padding, vertical = 16.dp)) {
-                    AppHeader({ tools = true }, diagnostic, !s.drivingRestricted) { diagnostic = false }
+                    AppHeader({ tools = true }, diagnostic, !s.drivingRestricted && !cabinQuiet) { diagnostic = false }
                     Spacer(Modifier.height(SafetyStepTokens.gap))
                     when {
                         s.drivingRestricted -> Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) { DrivingContent(s) }
-                        diagnostic -> Box(Modifier.weight(1f).fillMaxWidth()) { diagnostics() }
+                        diagnostic && !cabinQuiet -> Box(Modifier.weight(1f).fillMaxWidth()) { diagnostics() }
                         !BuildConfig.DEBUG -> Box(Modifier.weight(1f).fillMaxWidth()) { Text("디버그 프로토타입에서 실행해주세요.") }
                         else -> {
                             val receiver = s.receiverView && s.incident == null
                             val screen = when {
                                 receiver -> "RECEIVER"
                                 s.incident == null -> "DRIVE"
+                                cabinQuiet -> "MONITORING"
                                 s.incident?.help == HelpState.NEEDS_HELP -> "HELP"
                                 else -> "DASHBOARD"
                             }
@@ -77,14 +79,14 @@ fun SafetyStepApp(model: PrototypeViewModel, diagnostics: @Composable () -> Unit
                             }
                         }
                     }
-                    if (!s.drivingRestricted && s.incident?.eventType == EventType.STOPPED_VEHICLE && s.stopReportStatus != StopReportStatus.NONE) {
+                    if (!s.drivingRestricted && !cabinQuiet && s.incident?.eventType == EventType.STOPPED_VEHICLE && s.stopReportStatus != StopReportStatus.NONE) {
                         Spacer(Modifier.height(16.dp))
                         StopReportCard(s)
                     }
                 }
             }
         }
-        if (tools && !s.drivingRestricted) ToolsDialog(s, model, { tools = false }) { tools = false; diagnostic = true }
+        if (tools && !s.drivingRestricted && !cabinQuiet) ToolsDialog(s, model, { tools = false }) { tools = false; diagnostic = true }
     }
 }
 
@@ -230,15 +232,18 @@ internal fun preferredNearbyAccident(events: List<NearbyAccident>): NearbyAccide
         .thenBy { it.freshness.ordinal }.thenBy { it.event.id })
 
 @Composable internal fun DrivingContent(s: PrototypeUi) {
+    val guidance = supportGuidance(s)
+    if (s.incident != null && guidance.stage == SupportGuidanceStage.QUIET) {
+        Box(Modifier.fillMaxWidth().testTag("screen-DRIVING")) { QuietCabinContent(s) }
+        return
+    }
     val warning = preferredNearbyAccident(s.accidentNetwork.nearby)
     val legacyWarning = if (s.receiverView) preferredWarning(s.warningCards) else null
     Column(Modifier.fillMaxWidth().testTag("screen-DRIVING"), verticalArrangement = Arrangement.spacedBy(SafetyStepTokens.gap)) {
         AccidentContext(s)
         when {
             s.incident != null -> {
-                Hero(if (s.incident.help == HelpState.NEEDS_HELP) "무리하게 움직이지 마세요" else "안전하게 정차해주세요",
-                    if (s.incident.help == HelpState.NEEDS_HELP) "가능한 방법으로 도움을 요청하세요."
-                    else "주변을 살피고 안전한 곳에 정차한 뒤 안내를 이어가세요.")
+                Hero(guidance.heading, guidance.body)
                 if (s.incident.eventType == EventType.ACCIDENT) {
                     VehicleStatusRow(s)
                     AccidentShareCard(s.accidentNetwork, s.now, {}, drivingRestricted = true)

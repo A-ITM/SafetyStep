@@ -23,6 +23,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.aitm.pleosapp.prototype.PrototypeUi
+import io.github.aitm.pleosapp.vehicle.CabinPolicy
 
 /** Compact spatial observation. Empty or unknown seats never establish safe arrival. */
 @Composable
@@ -40,7 +41,7 @@ internal fun CabinMap(s: PrototypeUi, @Suppress("UNUSED_PARAMETER") preparing: B
     val remaining = expected.filter { occupied(it.first) == true }
     val unknown = expected.filter { occupied(it.first) == null }
     val observedSeatsEmpty = seats.isNotEmpty() && seats.values.all { it.occupied.current(s.now) == false }
-    val passengerRemains = occupied(1) == false && remaining.any { it.first != 1 }
+    val passengerRemains = CabinPolicy.passengerRemains(s.vehicle.seats, s.now, s.occupiedSeatAreas)
     val description = expected.joinToString { (area, name) -> "$name ${label(area)}" }
     BoxWithConstraints(Modifier.fillMaxWidth().testTag("cabin-map")) {
         val diagramWidth = if (maxWidth < 560.dp) 128.dp else 144.dp
@@ -92,7 +93,6 @@ internal fun CabinMap(s: PrototypeUi, @Suppress("UNUSED_PARAMETER") preparing: B
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 if (s.vehicle.sample) Text("샘플 좌석", style = SafetyStepTokens.caption, color = c.secondary)
                 Text(when {
-                    passengerRemains -> "동승 좌석 확인 필요"
                     remaining.isNotEmpty() -> "감지된 좌석"
                     observedSeatsEmpty -> "관측 좌석 비움"
                     else -> "좌석 확인 필요"

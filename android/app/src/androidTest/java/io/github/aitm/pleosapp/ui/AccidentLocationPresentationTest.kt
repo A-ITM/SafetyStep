@@ -12,6 +12,7 @@ import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import io.github.aitm.pleosapp.accident.*
 import io.github.aitm.pleosapp.prototype.*
+import io.github.aitm.pleosapp.vehicle.SeatObservation
 import io.github.aitm.pleosapp.vehicle.VehicleReading
 import io.github.aitm.pleosapp.vehicle.VehicleSnapshot
 import org.junit.Assert.assertTrue
@@ -113,7 +114,7 @@ class AccidentLocationPresentationTest {
                 Box(Modifier.size(544.dp, 732.dp).testTag("panel")) {
                     IncidentDashboardContent(PrototypeUi(
                         incident = incident.respond(Responder.PASSENGER, HelpState.NEEDS_HELP),
-                        now = now, drivingRestricted = false, cabinClearConfirmed = true,
+                        now = now, drivingRestricted = false,
                         accidentNetwork = AccidentNetworkUi(shareStatus = AccidentShareStatus.CONSENT_REQUIRED),
                     ), {}, {}, {})
                 }
@@ -125,6 +126,42 @@ class AccidentLocationPresentationTest {
         visibleInsidePanel("contact-phone")
         compose.onNodeWithTag("contact-phone").assertHeightIsAtLeast(80.dp)
         compose.onNodeWithTag("urgent-help").assertDoesNotExist()
+    }
+
+    @Test fun quietAccidentClosesSharingDetailsAndKeepsOnlyPassiveStateAsSensorsAge() {
+        val state = mutableStateOf(PrototypeUi(
+            incident = incident.respond(Responder.PASSENGER, HelpState.NEEDS_HELP),
+            now = now, drivingRestricted = false,
+            vehicle = VehicleSnapshot(seats = listOf(SeatObservation(1, "운전석", VehicleReading(false, now)))),
+            accidentNetwork = AccidentNetworkUi(shareStatus = AccidentShareStatus.QUEUED),
+        ))
+        compose.setContent {
+            SafetyStepTheme(ThemePreference.DARK) {
+                Box(Modifier.size(745.dp, 1042.dp)) { IncidentDashboardContent(state.value, {}, {}, {}) }
+            }
+        }
+        compose.onNodeWithTag("accident-share-details").performScrollTo().performClick()
+        compose.onNodeWithTag("accident-location-refresh").assertExists()
+        compose.runOnIdle { state.value = state.value.copy(cabinClearConfirmed = true, cabinEmptyReadingComplete = true) }
+        compose.onNodeWithTag("accident-location-refresh").assertDoesNotExist()
+        compose.onNodeWithText("좌석 비움 관측").assertIsDisplayed()
+        compose.onNodeWithText("도움 요청 기록 있음").assertIsDisplayed()
+        compose.onNodeWithText("서버 등록 대기").assertIsDisplayed()
+        compose.onNodeWithText("무리하게 움직이지 마세요").assertDoesNotExist()
+        listOf("contact-phone", "urgent-help", "report-location", "support-voice", "bitbox-hazard", "accident-share-details")
+            .forEach { compose.onNodeWithTag(it).assertDoesNotExist() }
+        compose.onAllNodes(hasClickAction()).assertCountEquals(0)
+        compose.runOnIdle { state.value = state.value.copy(now = now + 31_000L, cabinEmptyReadingComplete = false,
+            accidentNetwork = state.value.accidentNetwork.copy(shareStatus = AccidentShareStatus.REGISTERED)) }
+        compose.onNodeWithText("좌석 비움 관측").assertIsDisplayed()
+        compose.onNodeWithText("현재 좌석 상태 미확인").assertIsDisplayed()
+        compose.onNodeWithText("관측 좌석 비움").assertDoesNotExist()
+        compose.onNodeWithText("서버 등록 완료").assertIsDisplayed()
+        compose.onAllNodes(hasClickAction()).assertCountEquals(0)
+        compose.onAllNodes(SemanticsMatcher.keyIsDefined(SemanticsActions.ScrollBy)).assertCountEquals(0)
+        compose.runOnIdle { state.value = state.value.copy(cabinClearConfirmed = false) }
+        compose.onNodeWithTag("accident-location-refresh").assertDoesNotExist()
+        compose.onNodeWithTag("contact-phone").assertIsDisplayed()
     }
 
     @Test fun accidentDrivingHasContextAndShareStatusWithoutTouchTasks() {

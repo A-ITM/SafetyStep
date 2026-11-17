@@ -17,6 +17,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.resume
 
 object SpeechGatewayFactory {
@@ -45,17 +46,26 @@ private class PleosSpeechGateway(private val context: Context) : SpeechGateway {
                 var playbackStarted = false
                 var playbackDone = prompt == null
                 var listenRequested = false
-                var recognitionStarted = false
+                var listeningObserved = false
+                val awaitingFirstInputLevel = AtomicBoolean(false)
                 fun cleanup() {
                     active = false
                     handler.removeCallbacksAndMessages(null)
-                    runCatching { tts?.stop(); tts?.release() }
-                    runCatching { stt?.stop(); stt?.release() }
+                    runCatching { tts?.stop() }
+                    runCatching { tts?.release() }
+                    runCatching { stt?.stop() }
+                    runCatching { stt?.release() }
                 }
                 fun finish(result: VoiceResult) {
                     if (!active || !continuation.isActive) return
                     cleanup()
                     continuation.resume(result)
+                }
+                fun markListening() {
+                    if (!listenRequested || listeningObserved) return
+                    listeningObserved = true
+                    phase(VoicePhase.LISTENING)
+                    handler.postDelayed({ if (active) finish(VoiceResult.NoSpeech) }, 15_000)
                 }
                 fun callback(block: () -> Unit) { handler.post { if (active && continuation.isActive) block() } }
                 fun attempt(block: () -> Unit) {
@@ -64,14 +74,19 @@ private class PleosSpeechGateway(private val context: Context) : SpeechGateway {
                 fun listenWhenReady() {
                     if (!active || !listenAfter || !playbackDone || !sttReady || listenRequested) return
                     listenRequested = true
-                    // LISTENING is emitted only by the service's onStartedRecognition callback.
+                    // A request alone does not establish that audio input has started.
                     phase(VoicePhase.PREPARING)
                     attempt {
-                        if (testPcm == null) stt?.request()
-                        else { stt?.sendAudio(testPcm); stt?.completeAudioSend() }
+                        if (testPcm == null) {
+                            awaitingFirstInputLevel.set(true)
+                            stt?.request()
+                        } else {
+                            stt?.sendAudio(testPcm)
+                            stt?.completeAudioSend()
+                        }
                     }
                     handler.postDelayed({
-                        if (active && !recognitionStarted) finish(VoiceResult.Failed("음성 인식 시작을 확인할 수 없어요"))
+                        if (active && !listeningObserved) finish(VoiceResult.Failed("음성 인식 시작을 확인할 수 없어요"))
                     }, 7_000)
                 }
                 continuation.invokeOnCancellation { handler.post { cleanup() } }
@@ -102,22 +117,21 @@ private class PleosSpeechGateway(private val context: Context) : SpeechGateway {
                     }
                     val sttListener = object : ResultListener {
                         override fun onReady() = Unit
-                        override fun onStartedRecognition() = callback {
-                            if (listenRequested && !recognitionStarted) {
-                                recognitionStarted = true
-                                phase(VoicePhase.LISTENING)
-                                handler.postDelayed({ if (active) finish(VoiceResult.NoSpeech) }, 15_000)
-                            }
-                        }
+                        override fun onStartedRecognition() = callback { markListening() }
                         override fun onUpdated(stt: String, completed: Boolean) = callback {
                             if (listenRequested && completed && stt.isNotBlank()) finish(VoiceResult.Text(stt))
                         }
                         override fun onUpdatedEpdData(on: Long, off: Long) = Unit
-                        override fun onUpdatedRms(rms: Double) = Unit
+                        override fun onUpdatedRms(rms: Double) {
+                            // Silent microphone input can provide levels before there is speech to recognize.
+                            if (rms.isFinite() && awaitingFirstInputLevel.compareAndSet(true, false)) {
+                                callback { markListening() }
+                            }
+                        }
                         override fun onEndedRecognition() = callback {
                             // The SDK can end recognition before delivering final text.
                             if (listenRequested) handler.postDelayed({
-                                if (active) finish(if (recognitionStarted) VoiceResult.NoSpeech else VoiceResult.Failed("음성 인식 시작을 확인할 수 없어요"))
+                                if (active) finish(if (listeningObserved) VoiceResult.NoSpeech else VoiceResult.Failed("음성 인식 시작을 확인할 수 없어요"))
                             }, 1_000)
                         }
                         override fun onError(errorType: SttError) = callback { finish(VoiceResult.Failed("STT ${errorType.name}")) }
