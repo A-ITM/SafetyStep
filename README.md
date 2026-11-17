@@ -5,6 +5,7 @@
 - 저장소: [A-ITM/SafetyStep](https://github.com/A-ITM/SafetyStep)
 - 현재 개발 범위: **0.6 / 전면 실행 에뮬레이터 + TEST 도로 + 로컬 HTTP 서버**
 - [5회 검수한 구현 계획](docs/safetystep-prototype-v06-plan.md) · [공통 계약과 예제](docs/contracts/prototype-v06.md) · [장기 개발 계획 1.3](docs/safetystep-execution-plan.md)
+- [인포테인먼트 UI·디자인 시스템 개선](docs/safetystep-infotainment-ui-review.md): 기존 Figma의 네이비 패널·좌석도를 기준으로 주행 경고를 단순화하고, 정차 후 도움 동작을 화면 하단에 고정했습니다.
 
 실제 사고 대응용 배포 앱이 아닙니다. 실제 도로 판정·에어백 자동 기동·공공 돌발정보·운영 인증/DB는 아직 연결하지 않았습니다. 입력 출처와 SDK 성공·미지원·시험 값을 구분합니다.
 
@@ -83,6 +84,8 @@ npx --yes deno@2.9.6 test --allow-read=docs/contracts/fixtures/prototype-v06.jso
 [0.6 검수 기록](docs/safetystep-v06-validation.md)에는 두 flavor 빌드·정책 시험과 실제 에뮬레이터 시험을 구분합니다. 음성이 출력되지 않은 demo 결과를 음성 성공으로 세지 않습니다. 경고 리드타임은 진행하는 TEST 위치가 사건 지점을 통과한 시각과 실제 음성 완료 시각으로 계산하며 고정 거리의 예상 TTC와 구분합니다.
 
 2026-11-17 로컬 검수에서 각 flavor 단위 시험 36개·lint·APK 빌드, Deno 계약 시험 25개, 실제 HTTP 요청 46건이 통과했습니다. Pleos 기기 시험 16개와 무응답 정차 공유→수신→철회, 실제 주행 경고 음성을 확인했습니다. 통제 시험 1회에서 첫 행동 안내 완료 6.193초, 경고 음성 완료 후 TEST 지점 통과까지 15.564초였습니다. 실차/운전자 효과 측정 결과는 아닙니다.
+
+이후 인포테인먼트 UI 개선 검수에서는 각 flavor 단위 시험 37개·lint·APK 빌드와 화면 시험 15개가 통과했습니다. 실제 Pleos 분할 화면에서 밝은/어두운 테마, 동승석 잔류, 도움 요청 유지, 주행 경고를 확인했습니다. 세부 범위는 [UI 검수 기록](docs/safetystep-infotainment-ui-review.md#실행-결과--2026-11-17)에 정리했습니다.
 
 별도 서버가 켜져 있으면 `python3 scripts/smoke-prototype.py`로 HTTP 계약을 검사합니다. 서버를 재시작한 뒤 `python3 scripts/verify-prototype-v06.py --serial emulator-5554 --phase all --output output/v06-flow`로 설치된 두 앱의 연속 흐름을 확인할 수 있습니다. [검수 기록의 재현 조건](docs/safetystep-v06-validation.md#재현-명령과-남은-범위)을 먼저 읽으세요.
 
