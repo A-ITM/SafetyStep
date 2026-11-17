@@ -9,6 +9,7 @@ import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.aitm.pleosapp.BuildConfig
+import io.github.aitm.pleosapp.accident.*
 import io.github.aitm.pleosapp.location.ReportLocation
 import io.github.aitm.pleosapp.location.ReportLocationGatewayFactory
 import io.github.aitm.pleosapp.location.ReportLocationStatus
@@ -73,6 +74,7 @@ data class PrototypeUi(
     val stopReportDetail: String = "정차 관측 전",
     val supportQualified: Boolean = false,
     val reportLocation: ReportLocation = ReportLocation(),
+    val accidentNetwork: AccidentNetworkUi = AccidentNetworkUi(),
 )
 
 class PrototypeViewModel(application: Application) : AndroidViewModel(application) {
@@ -136,6 +138,26 @@ class PrototypeViewModel(application: Application) : AndroidViewModel(applicatio
     private var supportInputElapsed = mutableMapOf<String, Long>()
     private var firstEvidenceElapsed = mutableMapOf<String, Long>()
     private var reportJob: Job? = null
+    private val accidentCoordinator = AccidentCoordinator(application, viewModelScope, owner) { geo ->
+        mutable.update { s ->
+            val location = geo.sharedEvent?.location ?: geo.currentLocation
+            val reporting = if (s.incident?.eventType != EventType.ACCIDENT) s.reportLocation
+                else location?.let { ReportLocation(ReportLocationStatus.AVAILABLE, it.latitude, it.longitude, it.address,
+                    it.headingDegrees, it.receivedAt, it.fixObservedAt, it.accuracyMeters,
+                    it.origin == LocationOrigin.TEST || it.mock,
+                    "${it.origin.name} 위치 · " + if (it.fixObservedAt == null) "측위 시각·정확도는 제공되지 않았어요" else "사고 시점에 확보한 위치예요") }
+                    ?: ReportLocation(status = ReportLocationStatus.UNAVAILABLE, detail = "사고 위치를 확인하고 있어요")
+            s.copy(accidentNetwork = geo, reportLocation = reporting)
+        }
+        maybeSpeakNearbyAccident()
+    }
+
+    private fun syncAccidentContext() {
+        val s = state.value
+        accidentCoordinator.context(s.incident, s.consent, s.receiverEnabled, s.online, foreground && BuildConfig.DEBUG)
+    }
+    fun requestAccidentLocationRefresh() { accidentCoordinator.refresh() }
+
 
     init {
         gateway.watchDrivingRestrictions { restricted -> viewModelScope.launch { mutable.update { it.copy(drivingRestricted = restricted) } } }
@@ -164,6 +186,15 @@ class PrototypeViewModel(application: Application) : AndroidViewModel(applicatio
             put("stopReportDetail", s.stopReportDetail); put("supportQualified", s.supportQualified)
             put("position", p?.let { JSONObject().put("road", it.road).put("direction", it.direction).put("meters", it.meters)
                 .put("speedMps", it.speedMps ?: JSONObject.NULL).put("roadKind", it.roadKind.name).put("observedAt", it.observedAt).put("source", it.source) } ?: JSONObject.NULL)
+            put("accidentSharing", s.accidentNetwork.shareStatus.name)
+            put("accidentRegisteredId", s.accidentNetwork.sharedEvent?.id ?: JSONObject.NULL)
+            put("accidentLocation", s.accidentNetwork.sharedEvent?.location?.json() ?: JSONObject.NULL)
+            put("geoLocation", s.accidentNetwork.currentLocation?.json() ?: JSONObject.NULL)
+            put("geoReceiverStatus", s.accidentNetwork.receiverStatus.name)
+            put("geoDetail", s.accidentNetwork.detail)
+            put("nearbyAccidents", JSONArray(s.accidentNetwork.nearby.map { n -> JSONObject().put("id", n.event.id)
+                .put("distanceMeters", n.distanceMeters ?: JSONObject.NULL).put("freshness", n.freshness.name)
+                .put("eventType", "ACCIDENT").put("location", n.event.location.json()) }))
             put("contextGeneration", contextGeneration); put("metricsFile", metrics.file.absolutePath)
             put("reportLocation", JSONObject().put("status", s.reportLocation.status.name).put("latitude", s.reportLocation.latitude ?: JSONObject.NULL)
                 .put("longitude", s.reportLocation.longitude ?: JSONObject.NULL).put("address", s.reportLocation.address ?: JSONObject.NULL)
@@ -196,15 +227,16 @@ class PrototypeViewModel(application: Application) : AndroidViewModel(applicatio
         Log.i("RoadsidePrototype", "$owner $message")
         mutable.update { it.copy(logs = (listOf(message) + it.logs).take(15)) }
     }
-    private fun updateIncident(value: Incident) { store.saveIncident(value); mutable.update { it.copy(incident = value) } }
+    private fun updateIncident(value: Incident) { store.saveIncident(value); mutable.update { it.copy(incident = value) }; syncAccidentContext() }
     private fun journey(value: SupportJourney) { store.saveJourney(state.value.incident?.id, value); mutable.update { it.copy(journey = value) } }
     fun setTheme(value: ThemePreference) { store.theme = value; mutable.update { it.copy(theme = value) } }
     fun setCollision(value: CollisionContext) {
-        journey(state.value.journey.copy(collision = value, trunk = ControlState.HELD, trunkNote = "이 프로토타입에서는 트렁크를 제어하지 않아요"))
-        if (sharedEvent == null) state.value.incident?.let {
-            val type = if (value in setOf(CollisionContext.FRONT, CollisionContext.REAR, CollisionContext.OTHER)) EventType.ACCIDENT else EventType.STOPPED_VEHICLE
-            updateIncident(it.copy(eventType = type))
+        if (state.value.incident?.eventType == EventType.STOPPED_VEHICLE &&
+            value in setOf(CollisionContext.FRONT, CollisionContext.REAR, CollisionContext.OTHER)) {
+            begin("MANUAL_TEST", EventType.ACCIDENT, firstActionRequested)
         }
+        // Collision detail never retracts an accident already observed/shared.
+        journey(state.value.journey.copy(collision = value, trunk = ControlState.HELD, trunkNote = "이 프로토타입에서는 트렁크를 제어하지 않아요"))
     }
     fun chooseSituation(value: CollisionContext) { setCollision(value); startSupportResponse() }
     fun confirmStationary(value: Boolean) { journey(state.value.journey.copy(stationaryConfirmed = value && supportStationary(), routeConfirmed = false)) }
@@ -215,11 +247,19 @@ class PrototypeViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun begin(source: String = "MANUAL_TEST", eventType: EventType = EventType.STOPPED_VEHICLE, useVoice: Boolean = true) {
         if (!BuildConfig.DEBUG) return
-        if (state.value.incident != null) { log("기존 지원 세션 유지 · 뒤늦은 도움 입력을 계속 받을 수 있어요"); return }
-        stopVoice()
+        val existing = state.value.incident
+        if (existing != null && !(existing.eventType == EventType.STOPPED_VEHICLE && eventType == EventType.ACCIDENT)) {
+            log("기존 지원 세션 유지 · 뒤늦은 도움 입력을 계속 받을 수 있어요"); return
+        }
+        stopVoice(); reportJob?.cancel(); reportJob = null
         val now = System.currentTimeMillis(); val elapsed = SystemClock.elapsedRealtime()
-        val type = sharedEvent?.takeIf { it.status == HazardState.ACTIVE }?.eventType ?: eventType
-        val incident = Incident(UUID.randomUUID().toString(), now, source, eventType = type)
+        val type = eventType
+        val incident = Incident(UUID.randomUUID().toString(), now, source, eventType = type).let { next ->
+            // A newly observed crash must not erase an occupant's unresolved request for help.
+            if (existing?.help == HelpState.NEEDS_HELP) next.copy(
+                response = existing.response, responder = existing.responder, help = HelpState.NEEDS_HELP,
+            ) else next
+        }
         updateIncident(incident); journey(SupportJourney()); cabinClearGate.reset()
         firstActionComplete = null; firstActionAttempted = null; listeningAttempted = null; firstActionRequested = useVoice
         supportInputElapsed[incident.id] = elapsed; firstEvidenceElapsed[incident.id] = minOf(elapsed, firstStopElapsed ?: elapsed)
@@ -379,11 +419,14 @@ class PrototypeViewModel(application: Application) : AndroidViewModel(applicatio
         log("차량 제어 미실행 · 트렁크 제어는 0.6 범위 밖")
     }
     fun refreshReportLocation() {
+        if (state.value.incident?.eventType == EventType.ACCIDENT) { reportJob?.cancel(); reportJob = null; requestAccidentLocationRefresh(); return }
         if (reportJob?.isActive == true) return
+        val requestedIncidentId = state.value.incident?.id
         mutable.update { it.copy(reportLocation = it.reportLocation.copy(status = ReportLocationStatus.LOADING)) }
         reportJob = viewModelScope.launch {
             val location = try { reportGateway.read() } catch (cancelled: CancellationException) { throw cancelled }
                 catch (error: Exception) { ReportLocation(status = ReportLocationStatus.UNAVAILABLE, detail = error.message ?: "위치 응답을 받지 못했어요") }
+            if (state.value.incident?.id != requestedIncidentId || state.value.incident?.eventType == EventType.ACCIDENT) return@launch
             mutable.update { it.copy(reportLocation = location) }
             metrics.record("report_location_result", sharedEvent?.id, state.value.incident?.id, details = mapOf("status" to location.status.name, "sample" to location.sample, "fixTimeKnown" to (location.fixObservedAt != null)))
         }
@@ -394,7 +437,7 @@ class PrototypeViewModel(application: Application) : AndroidViewModel(applicatio
         mutable.update { it.copy(pending = outbox.size, stopReportStatus = status) }
     }
     fun setConsent(value: Boolean) {
-        store.consent = value; mutable.update { it.copy(consent = value) }
+        store.consent = value; mutable.update { it.copy(consent = value) }; syncAccidentContext()
         if (!value) {
             // Preserve the exact pending command: an in-flight ACK may have been lost.
             persistOutbox(if (outbox.any { it.kind == CommandKind.CREATE }) StopReportStatus.HELD else state.value.stopReportStatus)
@@ -404,6 +447,7 @@ class PrototypeViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
     private fun maybeShare() {
+        if (state.value.incident?.eventType == EventType.ACCIDENT) return
         val p = currentPosition ?: return
         if (!latestStop.qualified || !p.valid(System.currentTimeMillis())) return
         if (sharedEvent?.status == HazardState.ACTIVE) return
@@ -487,11 +531,11 @@ class PrototypeViewModel(application: Application) : AndroidViewModel(applicatio
         store.receiverEnabled = value; contextGeneration++; snapshot.invalidate(clearDisplay = true); voicePolicy.reset()
         if (voiceMetricPurpose == "warning_voice") stopVoice()
         mutable.update { it.copy(receiverEnabled = value, previewHazard = false) }; previewEvent = null
-        evaluateReceiver()
+        evaluateReceiver(); syncAccidentContext()
     }
     fun setOnline(value: Boolean) {
         contextGeneration++; snapshot.invalidate()
-        mutable.update { it.copy(online = value, connected = false) }; evaluateReceiver()
+        mutable.update { it.copy(online = value, connected = false) }; evaluateReceiver(); syncAccidentContext()
     }
     private fun receiverStatus(): Pair<ReceiverStatus, String> = when {
         !state.value.receiverEnabled -> ReceiverStatus.OFF to "위험 알림 수신이 꺼져 있어요"
@@ -559,9 +603,40 @@ class PrototypeViewModel(application: Application) : AndroidViewModel(applicatio
             }
         }
     }
+    private fun maybeSpeakNearbyAccident() {
+        val s = state.value
+        val geo = s.accidentNetwork
+        val occupantNeedsSupport = s.incident != null && (!s.cabinClearConfirmed || s.incident.help == HelpState.NEEDS_HELP)
+        if (voiceMetricPurpose == "geo_warning" && (occupantNeedsSupport || geo.receiverStatus != ReceiverStatus.ACTIVE ||
+                geo.nearby.none { it.event.id == voiceIncidentId && it.freshness == EventFreshness.FRESH })) stopVoice()
+        if (!foreground || !speech.available || geo.receiverStatus != ReceiverStatus.ACTIVE || voiceJob?.isActive == true) return
+        if (occupantNeedsSupport) return
+        val notice = geo.nearby.filter { it.freshness == EventFreshness.FRESH && it.distanceMeters != null }
+            .sortedBy { it.distanceMeters }.firstOrNull { !accidentCoordinator.wasSpoken(it.event.id) && (voiceAttempts[it.event.id] ?: 0) < 2 } ?: return
+        val id = notice.event.id
+        voiceAttempts[id] = (voiceAttempts[id] ?: 0) + 1
+        stopVoice(); val token = voiceToken
+        voiceIncidentId = id; voiceMetricPurpose = "geo_warning"
+        mutable.update { it.copy(voicePhase = VoicePhase.PREPARING, voicePurpose = "ACCIDENT_WARNING") }
+        voiceJob = viewModelScope.launch {
+            val result = try { speech.say("주변 약 ${kotlin.math.ceil(notice.distanceMeters!!).toInt()}미터에 사고가 있습니다. 주변을 살피고 주의하세요.") { phase ->
+                if (voiceToken == token) mutable.update { it.copy(voicePhase = phase) }
+            } } catch (cancelled: CancellationException) { throw cancelled }
+            catch (error: Exception) { VoiceResult.Failed(error.message ?: "사고 경고 음성 실패") }
+            if (voiceToken != token) return@launch
+            voiceMetricPurpose = null; voiceIncidentId = null
+            if (result == VoiceResult.Spoken) {
+                runCatching { accidentCoordinator.markSpoken(id) }.onFailure { log("사고 음성 기록 저장 실패") }
+                mutable.update { it.copy(voicePhase = VoicePhase.COMPLETE) }
+                metrics.record("geo_warning_voice_complete", id)
+            } else mutable.update { it.copy(voicePhase = VoicePhase.UNAVAILABLE, voiceDetail = (result as? VoiceResult.Failed)?.detail ?: "음성 완료 미확인") }
+        }
+    }
+
     fun setForeground(value: Boolean) {
         if (foreground == value) return
         foreground = value; contextGeneration++; snapshot.invalidate(); stopPolicy.reset(); latestStop = StopObservation(null, false)
+        syncAccidentContext()
         if (!value) {
             pauseVoice(); vehicleJob?.cancel(); vehicleJob = null; uploaderJob?.cancel(); uploaderJob = null; receiverJob?.cancel(); receiverJob = null
             evaluateReceiver(); return
@@ -694,6 +769,7 @@ class PrototypeViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
     fun newLocalDemo() {
+        reportJob?.cancel(); reportJob = null
         stopVoice(); operatorPcmQueue.clear(); cabinClearGate.reset(); voicePolicy.reset(); stopPolicy.reset()
         firstActionComplete = null; firstActionAttempted = null; listeningAttempted = null; guidanceOutside = null; firstActionRequested = true
         latestStop = StopObservation(null, false); firstStopUtc = null; firstStopElapsed = null
@@ -704,6 +780,7 @@ class PrototypeViewModel(application: Application) : AndroidViewModel(applicatio
         mutable.update { it.copy(incident = null, journey = SupportJourney(), receiverView = false, previewHazard = false,
             supportQualified = false, stopReportId = null, stopReportStatus = StopReportStatus.NONE, stopReportDetail = "새 TEST 정차 관측 전",
             voiceText = "", voiceDetail = "", voiceInput = "NONE", cabinClearConfirmed = false, occupiedSeatAreas = emptySet(), hazardCommands = 0) }
+        syncAccidentContext(); accidentCoordinator.liveLocation()
         evaluateReceiver(); metrics.record("scenario_reset"); log("새 로컬 시험 · 기존 서버 사건은 유지돼요")
     }
     fun operatorAction(intent: Intent) {
@@ -721,6 +798,16 @@ class PrototypeViewModel(application: Application) : AndroidViewModel(applicatio
                 acceptPosition(position, intent.getStringExtra("reset") == "true" || intent.getBooleanExtra("reset", false), intent.getStringExtra("runId"))
                 if (position == null) log("유효하지 않은 TEST 위치 입력 · 이전 좌표로 대체하지 않음")
             }
+            "geo_position" -> {
+                val now = System.currentTimeMillis()
+                val location = runCatching { AccidentLocation(
+                    intent.getStringExtra("latitude")!!.toDouble(), intent.getStringExtra("longitude")!!.toDouble(),
+                    intent.getStringExtra("observedAt")!!.toLong(), intent.getStringExtra("observedAt")!!.toLong(),
+                    5.0, origin = LocationOrigin.TEST, mock = true,
+                ) }.getOrNull()?.takeIf { it.current(now) }
+                accidentCoordinator.testLocation(location)
+            }
+            "geo_live" -> accidentCoordinator.liveLocation()
             "receiver_enabled" -> setReceiverEnabled(intent.getStringExtra("value") == "true")
             "scenario" -> {
                 val fixtures = if (intent.getStringExtra("voice") == "fixture") listOf("story-driver.pcm", "story-mobility.pcm").map { name ->
@@ -807,5 +894,5 @@ class PrototypeViewModel(application: Application) : AndroidViewModel(applicatio
         Log.i("RoadsidePrototype", "GLEO_CALLBACK $response")
     }
 
-    override fun onCleared() { stopVoice(); reportJob?.cancel(); reportGateway.close(); gateway.close(); super.onCleared() }
+    override fun onCleared() { accidentCoordinator.close(); stopVoice(); reportJob?.cancel(); reportGateway.close(); gateway.close(); super.onCleared() }
 }

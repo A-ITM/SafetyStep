@@ -1,0 +1,240 @@
+{
+  "contractVersion": 7,
+  "clockNow": 1794880010000,
+  "staleClockNow": 1794880310000,
+  "create": {
+    "id": "accident-001",
+    "owner": "A",
+    "version": 1,
+    "eventType": "ACCIDENT",
+    "status": "ACTIVE",
+    "source": "OPERATOR_EVENT",
+    "simulation": true,
+    "occurredAt": 1794880000000,
+    "expiresAt": 1794880300000,
+    "location": {
+      "latitude": 37.4127,
+      "longitude": 127.0946,
+      "receivedAt": 1794880000000,
+      "fixObservedAt": 1794880000000,
+      "accuracyMeters": 5.0,
+      "headingDegrees": null,
+      "address": null,
+      "origin": "GPS",
+      "mock": true
+    }
+  },
+  "createAck": {
+    "accepted": true,
+    "duplicate": false,
+    "event": {
+      "id": "accident-001",
+      "owner": "A",
+      "version": 1,
+      "eventType": "ACCIDENT",
+      "status": "ACTIVE",
+      "source": "OPERATOR_EVENT",
+      "simulation": true,
+      "occurredAt": 1794880000000,
+      "expiresAt": 1794880300000,
+      "location": {
+        "latitude": 37.4127,
+        "longitude": 127.0946,
+        "receivedAt": 1794880000000,
+        "fixObservedAt": 1794880000000,
+        "accuracyMeters": 5.0,
+        "headingDegrees": null,
+        "address": null,
+        "origin": "GPS",
+        "mock": true
+      }
+    }
+  },
+  "duplicateAck": {
+    "accepted": true,
+    "duplicate": true,
+    "event": {
+      "id": "accident-001",
+      "owner": "A",
+      "version": 1,
+      "eventType": "ACCIDENT",
+      "status": "ACTIVE",
+      "source": "OPERATOR_EVENT",
+      "simulation": true,
+      "occurredAt": 1794880000000,
+      "expiresAt": 1794880300000,
+      "location": {
+        "latitude": 37.4127,
+        "longitude": 127.0946,
+        "receivedAt": 1794880000000,
+        "fixObservedAt": 1794880000000,
+        "accuracyMeters": 5.0,
+        "headingDegrees": null,
+        "address": null,
+        "origin": "GPS",
+        "mock": true
+      }
+    }
+  },
+  "query": {
+    "requestId": "nearby-001",
+    "location": {
+      "latitude": 37.4137,
+      "longitude": 127.0946,
+      "receivedAt": 1794880010000,
+      "fixObservedAt": 1794880010000,
+      "accuracyMeters": 5.0,
+      "headingDegrees": null,
+      "address": null,
+      "origin": "GPS",
+      "mock": true
+    }
+  },
+  "snapshot": {
+    "requestId": "nearby-001",
+    "serverNow": 1794880010000,
+    "radiusMeters": 1000,
+    "complete": true,
+    "events": [
+      {
+        "id": "accident-001",
+        "owner": "A",
+        "version": 1,
+        "eventType": "ACCIDENT",
+        "status": "ACTIVE",
+        "source": "OPERATOR_EVENT",
+        "simulation": true,
+        "occurredAt": 1794880000000,
+        "expiresAt": 1794880300000,
+        "location": {
+          "latitude": 37.4127,
+          "longitude": 127.0946,
+          "receivedAt": 1794880000000,
+          "fixObservedAt": 1794880000000,
+          "accuracyMeters": 5.0,
+          "headingDegrees": null,
+          "address": null,
+          "origin": "GPS",
+          "mock": true
+        }
+      }
+    ]
+  },
+  "emptySnapshot": {
+    "requestId": "nearby-001",
+    "serverNow": 1794880010000,
+    "radiusMeters": 1000,
+    "complete": true,
+    "events": []
+  },
+  "staleQuery": {
+    "requestId": "nearby-001",
+    "location": {
+      "latitude": 37.4137,
+      "longitude": 127.0946,
+      "receivedAt": 1794880310000,
+      "fixObservedAt": 1794880310000,
+      "accuracyMeters": 5.0,
+      "headingDegrees": null,
+      "address": null,
+      "origin": "GPS",
+      "mock": true
+    }
+  },
+  "staleSnapshot": {
+    "requestId": "nearby-001",
+    "serverNow": 1794880310000,
+    "radiusMeters": 1000,
+    "complete": true,
+    "events": [
+      {
+        "id": "accident-001",
+        "owner": "A",
+        "version": 1,
+        "eventType": "ACCIDENT",
+        "status": "ACTIVE",
+        "source": "OPERATOR_EVENT",
+        "simulation": true,
+        "occurredAt": 1794880000000,
+        "expiresAt": 1794880300000,
+        "location": {
+          "latitude": 37.4127,
+          "longitude": 127.0946,
+          "receivedAt": 1794880000000,
+          "fixObservedAt": 1794880000000,
+          "accuracyMeters": 5.0,
+          "headingDegrees": null,
+          "address": null,
+          "origin": "GPS",
+          "mock": true
+        }
+      }
+    ]
+  },
+  "resolve": {
+    "expectedVersion": 1,
+    "reason": "CONTROLLED_TEST"
+  },
+  "resolveAck": {
+    "accepted": true,
+    "duplicate": false,
+    "event": {
+      "id": "accident-001",
+      "owner": "A",
+      "version": 2,
+      "eventType": "ACCIDENT",
+      "status": "RESOLVED",
+      "source": "OPERATOR_EVENT",
+      "simulation": true,
+      "occurredAt": 1794880000000,
+      "expiresAt": 1794880300000,
+      "location": {
+        "latitude": 37.4127,
+        "longitude": 127.0946,
+        "receivedAt": 1794880000000,
+        "fixObservedAt": 1794880000000,
+        "accuracyMeters": 5.0,
+        "headingDegrees": null,
+        "address": null,
+        "origin": "GPS",
+        "mock": true
+      }
+    }
+  },
+  "resolvedSnapshot": {
+    "requestId": "nearby-001",
+    "serverNow": 1794880010000,
+    "radiusMeters": 1000,
+    "complete": true,
+    "events": [
+      {
+        "id": "accident-001",
+        "owner": "A",
+        "version": 2,
+        "eventType": "ACCIDENT",
+        "status": "RESOLVED",
+        "source": "OPERATOR_EVENT",
+        "simulation": true,
+        "occurredAt": 1794880000000,
+        "expiresAt": 1794880300000,
+        "location": {
+          "latitude": 37.4127,
+          "longitude": 127.0946,
+          "receivedAt": 1794880000000,
+          "fixObservedAt": 1794880000000,
+          "accuracyMeters": 5.0,
+          "headingDegrees": null,
+          "address": null,
+          "origin": "GPS",
+          "mock": true
+        }
+      }
+    ]
+  },
+  "versionError": {
+    "error": {
+      "code": "VERSION_CONFLICT",
+      "message": "Conflicting command"
+    }
+  }
+}

@@ -22,6 +22,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import io.github.aitm.pleosapp.accident.*
 import io.github.aitm.pleosapp.location.ReportLocation
 import io.github.aitm.pleosapp.location.ReportLocationStatus
 import io.github.aitm.pleosapp.prototype.*
@@ -37,12 +38,20 @@ internal fun IncidentDashboard(s: PrototypeUi, model: PrototypeViewModel) = Inci
         else model.requestVoice()
     },
     onRefreshLocation = model::refreshReportLocation,
+    onRefreshAccidentLocation = model::requestAccidentLocationRefresh,
 )
 
 /** Critical action stays visible; only the observation area scrolls on a short window. */
 @Composable
-internal fun IncidentDashboardContent(s: PrototypeUi, onHelp: () -> Unit, onVoice: () -> Unit, onRefreshLocation: () -> Unit) {
+internal fun IncidentDashboardContent(
+    s: PrototypeUi,
+    onHelp: () -> Unit,
+    onVoice: () -> Unit,
+    onRefreshLocation: () -> Unit,
+    onRefreshAccidentLocation: () -> Unit = onRefreshLocation,
+) {
     val c = LocalSafetyColors.current
+    val accident = s.incident?.eventType == EventType.ACCIDENT
     val needsHelp = s.incident?.help == HelpState.NEEDS_HELP
     val bodyScroll = remember(s.incident?.id, s.incident?.help) { ScrollState(0) }
     var voiceDetails by remember(s.incident?.id, s.incident?.help) { mutableStateOf(false) }
@@ -51,9 +60,14 @@ internal fun IncidentDashboardContent(s: PrototypeUi, onHelp: () -> Unit, onVoic
     @Composable fun LocationSummary() = ReportLocationCard(
         s.reportLocation, s.now, onRefreshLocation,
         sessionId = s.incident?.id, help = s.incident?.help, drivingRestricted = s.drivingRestricted,
+        locationOrigin = if (accident) (s.accidentNetwork.sharedEvent?.location ?: s.accidentNetwork.currentLocation)?.origin else null,
     )
 
     Column(Modifier.fillMaxSize().testTag("incident-dashboard")) {
+        if (accident) {
+            AccidentContext(s)
+            Spacer(Modifier.height(10.dp))
+        }
         Column(
             Modifier.weight(1f).fillMaxWidth().verticalScroll(bodyScroll).padding(bottom = 8.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -73,6 +87,11 @@ internal fun IncidentDashboardContent(s: PrototypeUi, onHelp: () -> Unit, onVoic
                 }, style = SafetyStepTokens.label, color = c.secondary)
             }
             if (needsHelp) LocationSummary()
+            if (accident) {
+                VehicleStatusRow(s)
+                AccidentShareCard(s.accidentNetwork, s.now, onRefreshAccidentLocation,
+                    sessionId = s.incident?.id, help = s.incident?.help, drivingRestricted = s.drivingRestricted)
+            }
             SupportVoiceStatus(s, onDetails = { voiceDetails = true })
             CabinMap(s, preparing = true)
             HazardReadStatus(s)
@@ -96,6 +115,103 @@ internal fun IncidentDashboardContent(s: PrototypeUi, onHelp: () -> Unit, onVoic
                 onVoice()
             }
         }
+    }
+}
+
+/** Explicit accident context stays distinct from stop observations and action guidance. */
+@Composable internal fun AccidentContext(s: PrototypeUi) {
+    if (s.incident?.eventType != EventType.ACCIDENT) return
+    val c = LocalSafetyColors.current
+    Row(Modifier.fillMaxWidth().testTag("accident-context"), verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        WarningTriangle(Modifier.size(28.dp), c.amber)
+        Text("사고 후 안전 지원", style = SafetyStepTokens.label, color = c.amber, fontWeight = FontWeight.SemiBold)
+        if (s.journey.collision in listOf(CollisionContext.FRONT, CollisionContext.REAR, CollisionContext.OTHER)) {
+            Text(s.journey.collision.label, style = SafetyStepTokens.caption, color = c.secondary,
+                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+        }
+    }
+}
+
+/** Only the current vehicle speed reading establishes the displayed vehicle state. */
+@Composable internal fun VehicleStatusRow(s: PrototypeUi) {
+    val c = LocalSafetyColors.current
+    val speed = s.vehicle.speedMps.current(s.now)?.takeIf { it.isFinite() && it >= 0f }
+    val stopped = speed != null && speed <= .5f
+    Row(Modifier.fillMaxWidth().heightIn(min = 44.dp).testTag("vehicle-motion-status"),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text(if (s.vehicle.sample || s.vehicle.speedMps.sample) "차량 상태 · 샘플" else "차량 상태",
+            style = SafetyStepTokens.caption, color = c.secondary)
+        Spacer(Modifier.weight(1f))
+        Text(when { speed == null -> "정지 여부 확인 필요"; stopped -> "정지 확인"; else -> "이동 중" },
+            style = SafetyStepTokens.label, color = if (stopped) c.mint else c.amber)
+    }
+}
+
+internal fun accidentShareLabel(status: AccidentShareStatus): String = when (status) {
+    AccidentShareStatus.IDLE -> "공유 대기"
+    AccidentShareStatus.CONSENT_REQUIRED -> "공유 동의 필요"
+    AccidentShareStatus.LOCATING -> "위치 확인 중 · 공유 보류"
+    AccidentShareStatus.QUEUED -> "서버 등록 대기"
+    AccidentShareStatus.REGISTERED -> "서버 등록 완료"
+    AccidentShareStatus.FAILED -> "사고 위치 공유 실패"
+    AccidentShareStatus.EXPIRED -> "공유 유효 시간 지남"
+}
+
+@Composable internal fun AccidentShareCard(
+    network: AccidentNetworkUi,
+    now: Long,
+    refresh: () -> Unit,
+    sessionId: String? = null,
+    help: HelpState? = null,
+    drivingRestricted: Boolean = false,
+) {
+    val c = LocalSafetyColors.current
+    var details by remember(sessionId, help) { mutableStateOf(false) }
+    LaunchedEffect(drivingRestricted) { if (drivingRestricted) details = false }
+    val location = network.sharedEvent?.location ?: network.currentLocation
+    val source = when (location?.origin) {
+        LocationOrigin.GPS -> if (location.mock) "GPS · 모의 위치" else "GPS"
+        LocationOrigin.NAVI -> if (location.mock) "내비게이션 · 모의 위치" else "내비게이션"
+        LocationOrigin.TEST -> "시험 입력 위치"
+        null -> null
+    }
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(SafetyStepTokens.radius)).background(c.inset)
+        .padding(start = 14.dp, end = if (drivingRestricted) 14.dp else 4.dp, top = 8.dp, bottom = 8.dp)
+        .testTag("accident-share"), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("사고 위치 공유", style = SafetyStepTokens.caption, color = c.secondary)
+                Text(accidentShareLabel(network.shareStatus), style = SafetyStepTokens.label,
+                    color = if (network.shareStatus == AccidentShareStatus.REGISTERED) c.blue else c.amber,
+                    modifier = Modifier.testTag("accident-share-status"))
+            }
+            if (!drivingRestricted) TextButton(onClick = { details = true },
+                modifier = Modifier.width(80.dp).heightIn(min = SafetyStepTokens.touch).testTag("accident-share-details")) {
+                Text("상세", style = SafetyStepTokens.caption)
+            }
+        }
+        if (network.locationPermissionNeeded) Text(if (drivingRestricted) "정차 후 설정에서 위치 권한을 허용해주세요" else "설정에서 위치 권한을 허용해주세요",
+            style = SafetyStepTokens.caption, color = c.secondary)
+        if (location?.mock == true || location?.origin == LocationOrigin.TEST) Text(source.orEmpty(),
+            style = SafetyStepTokens.caption, color = c.amber)
+    }
+    if (details && !drivingRestricted) SafetyDialog("사고 위치 공유", { details = false }) {
+        Text(accidentShareLabel(network.shareStatus), style = SafetyStepTokens.action)
+        Text("서버 등록과 다른 차량의 수신은 별개예요.", style = SafetyStepTokens.label, color = c.secondary)
+        if (network.locationPermissionNeeded) Text("설정에서 위치 권한을 허용해주세요.", style = SafetyStepTokens.label, color = c.amber)
+        if (location != null) {
+            Text("위치 출처 · $source", style = SafetyStepTokens.label)
+            location.address?.takeIf { it.isNotBlank() }?.let { Text(it, style = SafetyStepTokens.label) }
+            Text(String.format(Locale.KOREA, "위도 %.6f · 경도 %.6f", location.latitude, location.longitude),
+                style = SafetyStepTokens.label, modifier = Modifier.testTag("accident-share-coordinates"))
+            Text("${(now - location.receivedAt).coerceAtLeast(0) / 1000}초 전 받은 위치", style = SafetyStepTokens.caption, color = c.secondary)
+            Text(location.accuracyMeters?.let { "위치 정확도 약 ${kotlin.math.ceil(it).toInt()} m" } ?: "위치 정확도 알 수 없음",
+                style = SafetyStepTokens.label)
+            if (location.fixObservedAt == null) Text("측위 시각 알 수 없음", style = SafetyStepTokens.caption, color = c.secondary)
+            if (network.sharedEvent != null) Text("사고 시점에 받은 위치로 고정해 공유해요.", style = SafetyStepTokens.label, color = c.secondary)
+        } else Text("유효한 위치가 확인되기 전에는 전송하지 않아요.", style = SafetyStepTokens.label, color = c.secondary)
+        Action("위치 다시 확인", "accident-location-refresh", action = refresh)
     }
 }
 
@@ -171,6 +287,7 @@ internal fun ReportLocationCard(
     sessionId: String? = null,
     help: HelpState? = null,
     drivingRestricted: Boolean = false,
+    locationOrigin: LocationOrigin? = null,
 ) {
     val c = LocalSafetyColors.current
     var details by remember(sessionId, help) { mutableStateOf(false) }
@@ -208,13 +325,14 @@ internal fun ReportLocationCard(
             if (location.hasCoordinates) Text(String.format(Locale.KOREA, "위도 %.6f · 경도 %.6f", location.latitude, location.longitude),
                 style = SafetyStepTokens.label, modifier = Modifier.testTag("report-coordinates"))
             location.receivedAt?.let { received ->
-                Text("${(now - received).coerceAtLeast(0) / 1000}초 전 내비게이션에서 받은 위치", style = SafetyStepTokens.caption, color = c.secondary)
+                val provider = when (locationOrigin) { LocationOrigin.GPS -> "GPS"; LocationOrigin.TEST -> "시험 입력"; else -> "내비게이션" }
+                Text("${(now - received).coerceAtLeast(0) / 1000}초 전 ${provider}에서 받은 위치", style = SafetyStepTokens.caption, color = c.secondary)
             }
             Text(when {
                 location.fixObservedAt == null && location.accuracyMeters == null -> "측위 시각·정확도 알 수 없음"
                 location.fixObservedAt == null -> "측위 시각 알 수 없음"
                 location.accuracyMeters == null -> "위치 정확도 알 수 없음"
-                else -> "위치 정확도 약 ${location.accuracyMeters.toInt()} m"
+                else -> "위치 정확도 약 ${kotlin.math.ceil(location.accuracyMeters).toInt()} m"
             }, style = SafetyStepTokens.label)
             Text("도로 진행 방향은 주변 표지로 확인해주세요.", style = SafetyStepTokens.label)
             if (location.detail.isNotBlank()) Text(location.detail, style = SafetyStepTokens.caption, color = c.secondary)
