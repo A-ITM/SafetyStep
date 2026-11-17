@@ -87,7 +87,7 @@ class SafetyStepPresentationTest {
         compose.setContent {
             SafetyStepTheme(ThemePreference.LIGHT) {
                 Box(Modifier.size(544.dp, 732.dp).testTag("panel")) {
-                    DrivingContent(PrototypeUi(drivingRestricted = true, warningCards = listOf(
+                    DrivingContent(PrototypeUi(drivingRestricted = true, receiverView = true, warningCards = listOf(
                         WarningCard("old", EventType.ACCIDENT, 120.0, EventFreshness.STALE, "TEST"),
                         WarningCard("fresh", EventType.STOPPED_VEHICLE, 350.0, EventFreshness.FRESH, "TEST"),
                     )))
@@ -119,7 +119,7 @@ class SafetyStepPresentationTest {
         compose.setContent {
             SafetyStepTheme(ThemePreference.DARK) {
                 Box(Modifier.size(544.dp, 732.dp).testTag("panel")) {
-                    DrivingContent(PrototypeUi(drivingRestricted = true, warningCards = listOf(
+                    DrivingContent(PrototypeUi(drivingRestricted = true, receiverView = true, warningCards = listOf(
                         WarningCard("unknown", EventType.ACCIDENT, null, EventFreshness.UNCONFIRMED, "TEST"),
                     )))
                 }

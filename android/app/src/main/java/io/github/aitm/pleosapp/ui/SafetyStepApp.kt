@@ -1,7 +1,10 @@
 package io.github.aitm.pleosapp.ui
 
+import android.Manifest
 import android.content.Intent
 import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
@@ -26,6 +29,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.aitm.pleosapp.BuildConfig
+import io.github.aitm.pleosapp.accident.*
 import io.github.aitm.pleosapp.prototype.*
 
 /** This composable owns one application window. Navigation belongs to Pleos. */
@@ -73,7 +77,7 @@ fun SafetyStepApp(model: PrototypeViewModel, diagnostics: @Composable () -> Unit
                             }
                         }
                     }
-                    if (!s.drivingRestricted && s.incident != null && s.stopReportStatus != StopReportStatus.NONE) {
+                    if (!s.drivingRestricted && s.incident?.eventType == EventType.STOPPED_VEHICLE && s.stopReportStatus != StopReportStatus.NONE) {
                         Spacer(Modifier.height(16.dp))
                         StopReportCard(s)
                     }
@@ -105,24 +109,23 @@ fun SafetyStepApp(model: PrototypeViewModel, diagnostics: @Composable () -> Unit
 }
 
 @Composable private fun HomeContent(s: PrototypeUi, model: PrototypeViewModel) {
-    val warning = preferredWarning(s.warningCards)
+    val warning = preferredNearbyAccident(s.accidentNetwork.nearby)
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(SafetyStepTokens.gap)) {
-        if (warning != null) WarningCards(listOf(warning)) else Row(Modifier.fillMaxWidth(),
+        if (warning != null) NearbyAccidentWarning(warning) else Row(Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(SafetyStepTokens.gap)) {
             SafetyShield(Modifier.size(SafetyStepTokens.homeSymbol), LocalSafetyColors.current.blue.copy(alpha = .8f), strokeWidth = 2.5.dp)
             Text("안전운전 하세요", Modifier.weight(1f), style = SafetyStepTokens.hero)
         }
         ReceiverSettings(s, model)
-        if (s.stopReportStatus != StopReportStatus.NONE) StopReportCard(s)
         Spacer(Modifier.weight(1f))
-        Action("사고·고장 도움받기", "start-support") { model.begin() }
+        Action("사고 도움받기", "start-support") { model.begin(eventType = EventType.ACCIDENT) }
     }
 }
 
 @Composable internal fun RoadNotice(s: PrototypeUi) = StopReportCard(s)
 
 @Composable internal fun StopReportCard(s: PrototypeUi) {
-    if (s.stopReportStatus == StopReportStatus.NONE) return
+    if (s.incident?.eventType == EventType.ACCIDENT || s.stopReportStatus == StopReportStatus.NONE) return
     val c = LocalSafetyColors.current
     val message = when (s.stopReportStatus) {
         StopReportStatus.NONE -> ""
@@ -202,7 +205,7 @@ fun SafetyStepApp(model: PrototypeViewModel, diagnostics: @Composable () -> Unit
 
 @Composable internal fun ReceiverSettings(s: PrototypeUi, model: PrototypeViewModel) {
     CheckLine("주변 위험 알림", s.receiverEnabled, model::setReceiverEnabled, "receiver-enabled", !s.drivingRestricted,
-        status = receiverLabel(s.receiverStatus))
+        status = receiverLabel(if (s.receiverView) s.receiverStatus else s.accidentNetwork.receiverStatus))
 }
 
 internal fun receiverLabel(status: ReceiverStatus): String = when (status) {
@@ -219,18 +222,60 @@ internal fun preferredWarning(cards: List<WarningCard>): WarningCard? = cards.mi
         .thenBy { it.freshness.ordinal }.thenBy { it.incidentId },
 )
 
+/** Coordinates establish proximity, not a shared road or the direction of travel. */
+internal fun preferredNearbyAccident(events: List<NearbyAccident>): NearbyAccident? = events
+    .filter { it.event.status == "ACTIVE" }
+    .minWithOrNull(compareBy<NearbyAccident> { if (it.freshness == EventFreshness.FRESH) 0 else 1 }
+        .thenBy { it.distanceMeters?.takeIf { distance -> distance.isFinite() && distance >= 0 } ?: Double.MAX_VALUE }
+        .thenBy { it.freshness.ordinal }.thenBy { it.event.id })
+
 @Composable internal fun DrivingContent(s: PrototypeUi) {
-    val warning = preferredWarning(s.warningCards)
+    val warning = preferredNearbyAccident(s.accidentNetwork.nearby)
+    val legacyWarning = if (s.receiverView) preferredWarning(s.warningCards) else null
     Column(Modifier.fillMaxWidth().testTag("screen-DRIVING"), verticalArrangement = Arrangement.spacedBy(SafetyStepTokens.gap)) {
+        AccidentContext(s)
         when {
-            s.incident != null -> Hero(if (s.incident.help == HelpState.NEEDS_HELP) "무리하게 움직이지 마세요" else "안전하게 정차해주세요",
-                if (s.incident.help == HelpState.NEEDS_HELP) "가능한 방법으로 도움을 요청하세요."
-                else "주변을 살피고 안전한 곳에 정차한 뒤 안내를 이어가세요.")
-            warning != null -> WarningCards(listOf(warning), compact = true)
+            s.incident != null -> {
+                Hero(if (s.incident.help == HelpState.NEEDS_HELP) "무리하게 움직이지 마세요" else "안전하게 정차해주세요",
+                    if (s.incident.help == HelpState.NEEDS_HELP) "가능한 방법으로 도움을 요청하세요."
+                    else "주변을 살피고 안전한 곳에 정차한 뒤 안내를 이어가세요.")
+                if (s.incident.eventType == EventType.ACCIDENT) {
+                    VehicleStatusRow(s)
+                    AccidentShareCard(s.accidentNetwork, s.now, {}, drivingRestricted = true)
+                }
+            }
+            legacyWarning != null -> WarningCards(listOf(legacyWarning), compact = true)
+            warning != null -> NearbyAccidentWarning(warning, compact = true)
             else -> {
                 Hero("운전에 집중하세요")
-                Text("주변 위험 알림 ${receiverLabel(s.receiverStatus)}", style = SafetyStepTokens.label, color = LocalSafetyColors.current.secondary)
+                Text("주변 위험 알림 ${receiverLabel(if (s.receiverView) s.receiverStatus else s.accidentNetwork.receiverStatus)}",
+                    style = SafetyStepTokens.label, color = LocalSafetyColors.current.secondary)
             }
+        }
+    }
+}
+
+@Composable internal fun NearbyAccidentWarning(accident: NearbyAccident, compact: Boolean = false) {
+    val c = LocalSafetyColors.current
+    val distance = accident.distanceMeters?.takeIf { it.isFinite() && it >= 0 }
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(SafetyStepTokens.radius)).background(c.inset)
+        .padding(if (compact) 20.dp else SafetyStepTokens.cardPadding).testTag("nearby-accident-${accident.event.id}"),
+        verticalArrangement = Arrangement.spacedBy(SafetyStepTokens.smallGap)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            WarningTriangle(Modifier.size(SafetyStepTokens.warningSymbol), c.amber)
+            Text("주변 사고", style = SafetyStepTokens.action, color = c.amber)
+        }
+        Text(distance?.let { "약 ${kotlin.math.ceil(it).toInt()} m" } ?: "거리 확인 필요",
+            style = if (distance != null) SafetyStepTokens.distance else SafetyStepTokens.body,
+            modifier = Modifier.testTag("nearby-accident-distance-${accident.event.id}"))
+        if (accident.freshness != EventFreshness.FRESH) Text(
+            if (accident.freshness == EventFreshness.STALE) "오래된 사고 알림 · 최신 상태 미확인" else "최신 상태 미확인",
+            style = SafetyStepTokens.label, color = c.amber)
+        Text(if (accident.freshness == EventFreshness.FRESH) "직선 거리 · 도로 방향 미확인" else "이전 확인 위치 기준 · 도로 방향 미확인",
+            style = SafetyStepTokens.caption, color = c.secondary)
+        Text("속도를 줄이고 주변을 살피세요.", style = SafetyStepTokens.body)
+        if (accident.event.location.mock || accident.event.location.origin == LocationOrigin.TEST) {
+            Text("시험 위치 기반 알림", style = SafetyStepTokens.caption, color = c.secondary)
         }
     }
 }
@@ -289,11 +334,20 @@ internal fun preferredWarning(cards: List<WarningCard>): WarningCard? = cards.mi
 
 @Composable private fun ToolsDialog(s: PrototypeUi, model: PrototypeViewModel, close: () -> Unit, diagnostics: () -> Unit) {
     var developer by rememberSaveable { mutableStateOf(false) }
+    val locationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+        model.requestAccidentLocationRefresh()
+    }
     val c = LocalSafetyColors.current
     SafetyDialog("설정", close) {
         ReceiverSettings(s, model)
         CheckLine("위험 위치 공유 동의", s.consent, model::setConsent, "share")
         Text("공유 동의는 주변 알림 수신과 별개예요.", style = SafetyStepTokens.caption, color = LocalSafetyColors.current.secondary)
+        if (s.accidentNetwork.locationPermissionNeeded && !s.drivingRestricted) {
+            SecondaryAction("위치 권한 설정", "location-permission") {
+                locationPermission.launch(arrayOf(Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION))
+            }
+            Text("사고 위치 공유와 주변 사고 확인에 현재 위치를 사용해요.", style = SafetyStepTokens.caption, color = c.secondary)
+        }
         Text("화면 테마", style = SafetyStepTokens.label)
         BoxWithConstraints(Modifier.fillMaxWidth()) {
             if (maxWidth >= 312.dp) Row(horizontalArrangement = Arrangement.spacedBy(SafetyStepTokens.gap)) {

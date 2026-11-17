@@ -51,8 +51,12 @@ class SafetyStepUiTest {
         capture("01-drive-dark")
         theme("light")
         capture("02-drive-light")
-        compose.onNodeWithTag("start-support").assertIsDisplayed().performClick()
+        compose.onNodeWithTag("start-support").assertTextEquals("사고 도움받기").assertIsDisplayed().performClick()
         change { it.pauseVoice() }
+        compose.runOnIdle { assertEquals(EventType.ACCIDENT, model().state.value.incident!!.eventType) }
+        compose.onNodeWithText("사고 후 안전 지원").assertIsDisplayed()
+        compose.onNodeWithTag("accident-share").assertExists()
+        compose.onNodeWithTag("stop-report-status").assertDoesNotExist()
         compose.onNodeWithTag("incident-dashboard").assertExists()
         compose.onNodeWithText("안전한 곳으로 이동하세요").assertExists()
         compose.onNodeWithText("어떤 상황인가요?").assertDoesNotExist()
@@ -144,6 +148,37 @@ class SafetyStepUiTest {
         compose.onNodeWithTag("theme-light").assertDoesNotExist()
         compose.onNodeWithTag("incident-dashboard").assertIsDisplayed()
         compose.onNodeWithTag("urgent-help").assertIsDisplayed()
+    }
+
+    @Test fun observedAccidentReplacesStoppedSessionAndSurvivesClassificationChanges() {
+        change { it.begin(eventType = EventType.STOPPED_VEHICLE, useVoice = false) }
+        val stopped = compose.runOnIdle { model().state.value.incident!! }
+        compose.waitUntil(1_000) { System.currentTimeMillis() > stopped.observedAt }
+        change {
+            it.operatorAction(Intent("${compose.activity.packageName}.OPERATOR")
+                .putExtra("command", "geo_position")
+                .putExtra("latitude", "37.4127").putExtra("longitude", "127.0946")
+                .putExtra("observedAt", System.currentTimeMillis().toString()))
+            it.begin(source = "SDK_AIRBAG", eventType = EventType.ACCIDENT, useVoice = false)
+        }
+        val accident = compose.runOnIdle { model().state.value.incident!! }
+        assertNotEquals(stopped.id, accident.id)
+        assertTrue(accident.observedAt > stopped.observedAt)
+        assertEquals(EventType.ACCIDENT, accident.eventType)
+        assertEquals("SDK_AIRBAG", accident.source)
+        listOf(CollisionContext.UNKNOWN, CollisionContext.BREAKDOWN).forEach { classification ->
+            change { it.setCollision(classification); it.refreshReportLocation() }
+            compose.runOnIdle {
+                val state = model().state.value
+                assertEquals(accident.id, state.incident!!.id)
+                assertEquals(accident.observedAt, state.incident!!.observedAt)
+                assertEquals(EventType.ACCIDENT, state.incident!!.eventType)
+                assertEquals(37.4127, state.reportLocation.latitude!!, .000001)
+                assertEquals(127.0946, state.reportLocation.longitude!!, .000001)
+            }
+        }
+        compose.onNodeWithText("사고 후 안전 지원").assertIsDisplayed()
+        compose.onNodeWithTag("stop-report-status").assertDoesNotExist()
     }
 
     @Test fun warningCompletionPersistsWithoutRestoringOldControlAuthority() {
