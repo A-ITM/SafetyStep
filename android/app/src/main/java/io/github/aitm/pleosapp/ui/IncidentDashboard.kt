@@ -27,6 +27,7 @@ import io.github.aitm.pleosapp.location.ReportLocation
 import io.github.aitm.pleosapp.location.ReportLocationStatus
 import io.github.aitm.pleosapp.prototype.*
 import io.github.aitm.pleosapp.speech.VoicePhase
+import io.github.aitm.pleosapp.vehicle.CabinPolicy
 import java.util.Locale
 
 @Composable
@@ -41,6 +42,22 @@ internal fun IncidentDashboard(s: PrototypeUi, model: PrototypeViewModel) = Inci
     onRefreshAccidentLocation = model::requestAccidentLocationRefresh,
 )
 
+internal enum class SupportGuidanceStage { QUIET, HELP, STOP, PASSENGER, EXIT }
+internal data class SupportGuidance(val stage: SupportGuidanceStage, val heading: String, val body: String)
+
+/** The same vehicle and cabin evidence chooses guidance in both interactive and restricted views. */
+internal fun supportGuidance(s: PrototypeUi): SupportGuidance = when {
+    s.cabinClearConfirmed -> SupportGuidance(SupportGuidanceStage.QUIET, "좌석 비움 관측",
+        if (s.cabinEmptyReadingComplete) "" else "현재 좌석 상태 미확인")
+    s.incident?.help == HelpState.NEEDS_HELP -> SupportGuidance(SupportGuidanceStage.HELP,
+        "무리하게 움직이지 마세요", "가능한 방법으로 도움을 요청하세요.")
+    !s.supportQualified || s.vehicle.speedMps.current(s.now)?.let { it.isFinite() && it > .5f } == true ->
+        SupportGuidance(SupportGuidanceStage.STOP, "안전하게 정차해주세요", "차량이 멈춘 뒤 주변 상황을 살펴주세요.")
+    CabinPolicy.passengerRemains(s.vehicle.seats, s.now, s.occupiedSeatAreas) ->
+        SupportGuidance(SupportGuidanceStage.PASSENGER, "동승 좌석 감지됨", CabinGuidance.PASSENGER)
+    else -> SupportGuidance(SupportGuidanceStage.EXIT, "안전한 곳으로 이동하세요", CabinGuidance.EXIT)
+}
+
 /** Critical action stays visible; only the observation area scrolls on a short window. */
 @Composable
 internal fun IncidentDashboardContent(
@@ -50,18 +67,25 @@ internal fun IncidentDashboardContent(
     onRefreshLocation: () -> Unit,
     onRefreshAccidentLocation: () -> Unit = onRefreshLocation,
 ) {
+    val guidance = supportGuidance(s)
+    if (guidance.stage == SupportGuidanceStage.QUIET) {
+        Box(Modifier.fillMaxSize().testTag("incident-dashboard")) { QuietCabinContent(s) }
+        return
+    }
     val c = LocalSafetyColors.current
     val accident = s.incident?.eventType == EventType.ACCIDENT
-    val needsHelp = s.incident?.help == HelpState.NEEDS_HELP
-    val bodyScroll = remember(s.incident?.id, s.incident?.help) { ScrollState(0) }
-    var voiceDetails by remember(s.incident?.id, s.incident?.help) { mutableStateOf(false) }
+    val needsHelp = guidance.stage == SupportGuidanceStage.HELP
+    val bodyScroll = remember(s.incident?.id, s.incident?.help, guidance.stage) { ScrollState(0) }
+    var voiceDetails by remember(s.incident?.id, s.incident?.help, guidance.stage) { mutableStateOf(false) }
     LaunchedEffect(s.drivingRestricted) { if (s.drivingRestricted) voiceDetails = false }
 
-    @Composable fun LocationSummary() = ReportLocationCard(
-        s.reportLocation, s.now, onRefreshLocation,
-        sessionId = s.incident?.id, help = s.incident?.help, drivingRestricted = s.drivingRestricted,
-        locationOrigin = if (accident) (s.accidentNetwork.sharedEvent?.location ?: s.accidentNetwork.currentLocation)?.origin else null,
-    )
+    @Composable fun LocationSummary() = key(guidance.stage) {
+        ReportLocationCard(
+            s.reportLocation, s.now, onRefreshLocation,
+            sessionId = s.incident?.id, help = s.incident?.help, drivingRestricted = s.drivingRestricted,
+            locationOrigin = if (accident) (s.accidentNetwork.sharedEvent?.location ?: s.accidentNetwork.currentLocation)?.origin else null,
+        )
+    }
 
     Column(Modifier.fillMaxSize().testTag("incident-dashboard")) {
         if (accident) {
@@ -73,24 +97,20 @@ internal fun IncidentDashboardContent(
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(when {
-                    needsHelp -> "무리하게 움직이지 마세요"
-                    s.cabinClearConfirmed -> "차량으로 돌아가지 마세요"
-                    !s.supportQualified -> "안전하게 정차해주세요"
-                    else -> "안전한 곳으로 이동하세요"
-                }, style = SafetyStepTokens.hero)
-                Text(when {
-                    needsHelp -> "가능한 방법으로 도움을 요청하세요."
-                    s.cabinClearConfirmed -> "관측 좌석은 비어 있어요.\n안전한 곳에서 휴대전화로 상황을 알려주세요."
-                    !s.supportQualified -> "차량이 멈춘 뒤 주변 상황을 살펴주세요."
-                    else -> "주변을 살피고 안전하게 내릴 수 있으면\n가드레일 밖 등 안전한 곳으로 이동하세요."
-                }, style = SafetyStepTokens.label, color = c.secondary)
+                Text(guidance.heading, style = SafetyStepTokens.hero, modifier = Modifier.testTag("support-heading"))
+                Text(guidance.body, style = SafetyStepTokens.label, color = c.secondary, modifier = Modifier.testTag("support-guidance"))
+                if (guidance.stage == SupportGuidanceStage.PASSENGER &&
+                    s.voicePhase in listOf(VoicePhase.UNAVAILABLE, VoicePhase.PAUSED)) Text(
+                    "도움이 필요하면 아래 ‘움직이기 어려워요’를 눌러주세요.",
+                    style = SafetyStepTokens.caption, color = c.blue, modifier = Modifier.testTag("passenger-help-cue"))
             }
             if (needsHelp) LocationSummary()
             if (accident) {
                 VehicleStatusRow(s)
-                AccidentShareCard(s.accidentNetwork, s.now, onRefreshAccidentLocation,
-                    sessionId = s.incident?.id, help = s.incident?.help, drivingRestricted = s.drivingRestricted)
+                key(guidance.stage) {
+                    AccidentShareCard(s.accidentNetwork, s.now, onRefreshAccidentLocation,
+                        sessionId = s.incident?.id, help = s.incident?.help, drivingRestricted = s.drivingRestricted)
+                }
             }
             SupportVoiceStatus(s, onDetails = { voiceDetails = true })
             CabinMap(s, preparing = true)
@@ -99,7 +119,7 @@ internal fun IncidentDashboardContent(
         }
         if (needsHelp) {
             Column(Modifier.fillMaxWidth().padding(top = 10.dp).testTag("support-actions")) { ContactActions() }
-        } else if (!s.cabinClearConfirmed) {
+        } else {
             Box(Modifier.fillMaxWidth().padding(top = 10.dp).testTag("support-actions")) {
                 Action("움직이기 어려워요", "urgent-help") { onHelp() }
             }
@@ -115,6 +135,37 @@ internal fun IncidentDashboardContent(
                 onVoice()
             }
         }
+    }
+}
+
+/** The departure latch silences cabin prompts; it does not erase help or resolve an accident. */
+@Composable internal fun QuietCabinContent(s: PrototypeUi) {
+    val c = LocalSafetyColors.current
+    val guidance = supportGuidance(s)
+    Column(Modifier.fillMaxWidth().testTag("cabin-quiet"),
+        verticalArrangement = Arrangement.spacedBy(SafetyStepTokens.gap)) {
+        AccidentContext(s)
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(guidance.heading, style = SafetyStepTokens.hero, modifier = Modifier.testTag("cabin-passive-status"))
+            if (guidance.body.isNotEmpty()) Text(guidance.body,
+                style = SafetyStepTokens.label, color = c.secondary)
+            if (s.vehicle.sample) Text("샘플 좌석 관측", style = SafetyStepTokens.caption, color = c.secondary)
+        }
+        if (s.incident?.help == HelpState.NEEDS_HELP) Text("도움 요청 기록 있음",
+            style = SafetyStepTokens.label, color = c.secondary, modifier = Modifier.testTag("help-record"))
+        if (s.incident?.eventType == EventType.ACCIDENT) {
+            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(SafetyStepTokens.radius)).background(c.inset)
+                .padding(14.dp).testTag("accident-share"), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("사고 위치 공유", style = SafetyStepTokens.caption, color = c.secondary)
+                Text(accidentShareLabel(s.accidentNetwork.shareStatus), style = SafetyStepTokens.label,
+                    color = if (s.accidentNetwork.shareStatus == AccidentShareStatus.REGISTERED) c.blue else c.secondary,
+                    modifier = Modifier.testTag("accident-share-status"))
+                val location = s.accidentNetwork.sharedEvent?.location
+                if (location?.mock == true || location?.origin == LocationOrigin.TEST) {
+                    Text("시험 위치", style = SafetyStepTokens.caption, color = c.secondary)
+                }
+            }
+        } else StopReportCard(s)
     }
 }
 

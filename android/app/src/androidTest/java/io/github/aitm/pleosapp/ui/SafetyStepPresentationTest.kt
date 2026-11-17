@@ -16,6 +16,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import io.github.aitm.pleosapp.location.ReportLocation
 import io.github.aitm.pleosapp.location.ReportLocationStatus
 import io.github.aitm.pleosapp.prototype.*
+import io.github.aitm.pleosapp.speech.VoicePhase
 import io.github.aitm.pleosapp.vehicle.*
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -41,6 +42,7 @@ class SafetyStepPresentationTest {
         var helps = 0
         dashboard(PrototypeUi(incident = incident, supportQualified = true)) { helps++ }
         compose.onNodeWithText("안전한 곳으로 이동하세요").assertExists()
+        compose.onNodeWithText(CabinGuidance.EXIT).assertExists()
         compose.onNodeWithTag("incident-dashboard").assertExists()
         compose.onNodeWithTag("report-location").assertExists()
         compose.onNodeWithTag("bitbox-hazard").assertExists()
@@ -53,27 +55,32 @@ class SafetyStepPresentationTest {
         assertEquals(1, helps)
     }
 
-    @Test fun storedHelpPreemptsClearSeatsAndTerminalRoadEvent() {
+    @Test fun quietCabinKeepsHelpRecordWithoutPromptsOrControls() {
         dashboard(PrototypeUi(
             incident = incident.resolve().respond(Responder.PASSENGER, HelpState.NEEDS_HELP),
             supportQualified = true, cabinClearConfirmed = true,
         ))
-        compose.onNodeWithText("무리하게 움직이지 마세요").assertExists()
-        compose.onNodeWithTag("contact-phone").assertExists()
-        compose.onNodeWithTag("urgent-help").assertDoesNotExist()
-        visibleInsidePanel("report-location")
-        visibleInsidePanel("contact-phone")
-        compose.onNodeWithTag("contact-phone").assertHeightIsAtLeast(80.dp)
+        compose.onNodeWithText("좌석 비움 관측").assertIsDisplayed()
+        compose.onNodeWithText("도움 요청 기록 있음").assertIsDisplayed()
+        assertQuietCabin()
     }
 
-    @Test fun clearedSeatsKeepReportingGuidanceWithoutPhoneOrHelpButtons() {
+    @Test fun clearedSeatsKeepPassiveHistoricalStateOnly() {
         dashboard(PrototypeUi(incident = incident, supportQualified = false, cabinClearConfirmed = true))
-        compose.onNodeWithTag("contact-phone").assertDoesNotExist()
-        compose.onNodeWithTag("urgent-help").assertDoesNotExist()
-        compose.onNodeWithText("차량으로 돌아가지 마세요").assertIsDisplayed()
+        compose.onNodeWithText("좌석 비움 관측").assertIsDisplayed()
+        compose.onNodeWithText("현재 좌석 상태 미확인").assertIsDisplayed()
+        compose.onNodeWithText("도움 요청 기록 있음").assertDoesNotExist()
         compose.onNodeWithText("안전하게 정차해주세요").assertDoesNotExist()
-        compose.onNodeWithTag("report-location").assertExists()
         compose.onNodeWithText("대피 완료").assertDoesNotExist()
+        assertQuietCabin()
+    }
+
+    private fun assertQuietCabin() {
+        compose.onNodeWithTag("cabin-quiet").assertIsDisplayed()
+        listOf("contact-phone", "urgent-help", "support-voice", "report-location", "bitbox-hazard", "support-actions")
+            .forEach { compose.onNodeWithTag(it).assertDoesNotExist() }
+        compose.onAllNodes(hasClickAction()).assertCountEquals(0)
+        compose.onAllNodes(SemanticsMatcher.keyIsDefined(SemanticsActions.ScrollBy)).assertCountEquals(0)
     }
 
     private fun visibleInsidePanel(tag: String) {
@@ -111,6 +118,7 @@ class SafetyStepPresentationTest {
             ))))
         visibleInsidePanel("cabin-map")
         visibleInsidePanel("urgent-help")
+        compose.onNodeWithText(CabinGuidance.PASSENGER).assertExists()
         compose.onNodeWithText("안전한 곳에 머무르세요").assertDoesNotExist()
         compose.onNodeWithText("대피 완료").assertDoesNotExist()
     }
@@ -157,6 +165,143 @@ class SafetyStepPresentationTest {
         compose.runOnIdle { state.value = state.value.copy(incident = incident.respond(Responder.UNKNOWN, HelpState.NEEDS_HELP)) }
         compose.onNodeWithTag("report-location-refresh").assertDoesNotExist()
         visibleInsidePanel("contact-phone")
+    }
+
+    @Test fun quietCabinClosesLocationAndVoiceDialogsAndReentryDoesNotRestoreThem() {
+        val state = mutableStateOf(PrototypeUi(incident = incident, supportQualified = true,
+            drivingRestricted = false, now = 50_000L))
+        compose.setContent {
+            SafetyStepTheme(ThemePreference.DARK) {
+                Box(Modifier.size(745.dp, 1042.dp)) { IncidentDashboardContent(state.value, {}, {}, {}) }
+            }
+        }
+        compose.onNodeWithTag("report-location-details").performScrollTo().performClick()
+        compose.onNodeWithTag("report-location-refresh").assertExists()
+        compose.runOnIdle { state.value = state.value.copy(cabinClearConfirmed = true) }
+        compose.onNodeWithTag("report-location-refresh").assertDoesNotExist()
+        assertQuietCabin()
+        compose.runOnIdle { state.value = state.value.copy(cabinClearConfirmed = false) }
+        compose.onNodeWithTag("report-location-refresh").assertDoesNotExist()
+        compose.onNodeWithTag("voice-details").performScrollTo().performClick()
+        compose.onNodeWithTag("voice-action").assertExists()
+        compose.runOnIdle { state.value = state.value.copy(cabinClearConfirmed = true) }
+        compose.onNodeWithTag("voice-action").assertDoesNotExist()
+        assertQuietCabin()
+        compose.runOnIdle { state.value = state.value.copy(cabinClearConfirmed = false) }
+        compose.onNodeWithTag("voice-action").assertDoesNotExist()
+        compose.onNodeWithTag("urgent-help").assertIsDisplayed()
+    }
+
+    @Test fun passengerGuidanceAppearsFirstAfterDriverDepartureAndYieldsToHelpOrMotion() {
+        val state = mutableStateOf(PrototypeUi(incident = incident, supportQualified = true, drivingRestricted = false,
+            voicePhase = VoicePhase.UNAVAILABLE, now = 50_000L, vehicle = VehicleSnapshot(seats = listOf(
+            SeatObservation(1, "운전석", VehicleReading(false, 50_000L)),
+            SeatObservation(4, "동승석", VehicleReading(true, 50_000L)),
+        ))))
+        compose.setContent {
+            SafetyStepTheme(ThemePreference.LIGHT) {
+                Box(Modifier.size(544.dp, 732.dp).testTag("panel")) { IncidentDashboardContent(state.value, {}, {}, {}) }
+            }
+        }
+        compose.onNodeWithText("안전한 곳으로 이동하세요").assertIsDisplayed()
+        compose.onNodeWithText(CabinGuidance.PASSENGER).assertDoesNotExist()
+        compose.onNodeWithTag("report-location-details").performScrollTo()
+        compose.runOnIdle { state.value = state.value.copy(occupiedSeatAreas = setOf(1, 4)) }
+        compose.onNodeWithText("동승 좌석 감지됨").assertIsDisplayed()
+        compose.onNodeWithText(CabinGuidance.PASSENGER).assertIsDisplayed()
+        compose.onAllNodesWithText(CabinGuidance.PASSENGER).assertCountEquals(1)
+        visibleInsidePanel("support-heading")
+        visibleInsidePanel("support-guidance")
+        visibleInsidePanel("passenger-help-cue")
+        visibleInsidePanel("urgent-help")
+        compose.onNodeWithText("도움이 필요하면 아래 ‘움직이기 어려워요’를 눌러주세요.").assertIsDisplayed()
+        compose.onNodeWithText("도움이 필요하면 말씀해 주세요.").assertDoesNotExist()
+        listOf(VoicePhase.PREPARING, VoicePhase.SPEAKING, VoicePhase.LISTENING).forEach { phase ->
+            compose.runOnIdle { state.value = state.value.copy(voicePhase = phase) }
+            compose.onNodeWithTag("passenger-help-cue").assertDoesNotExist()
+            visibleInsidePanel("urgent-help")
+        }
+        compose.onAllNodesWithText("도움이 필요하면 말씀해주세요").assertCountEquals(1)
+        compose.runOnIdle { state.value = state.value.copy(voicePhase = VoicePhase.PAUSED) }
+        compose.onNodeWithTag("passenger-help-cue").assertIsDisplayed()
+        compose.runOnIdle { state.value = state.value.copy(incident = incident.respond(Responder.PASSENGER, HelpState.NEEDS_HELP)) }
+        compose.onNodeWithText("무리하게 움직이지 마세요").assertIsDisplayed()
+        compose.onNodeWithText(CabinGuidance.PASSENGER).assertDoesNotExist()
+        visibleInsidePanel("contact-phone")
+        compose.runOnIdle { state.value = state.value.copy(incident = incident,
+            vehicle = state.value.vehicle.copy(speedMps = VehicleReading(10f, 50_000L))) }
+        compose.onNodeWithText("안전하게 정차해주세요").assertIsDisplayed()
+        compose.onNodeWithText(CabinGuidance.PASSENGER).assertDoesNotExist()
+        compose.onNodeWithTag("passenger-help-cue").assertDoesNotExist()
+    }
+
+    @Test fun partialEmptyFrameInQuietStateRemainsCurrentlyUnconfirmed() {
+        dashboard(PrototypeUi(incident = incident, cabinClearConfirmed = true, cabinEmptyReadingComplete = false,
+            now = 50_000L, occupiedSeatAreas = setOf(1, 4), vehicle = VehicleSnapshot(seats = listOf(
+                SeatObservation(1, "운전석", VehicleReading(false, 50_000L)),
+            ))))
+        compose.onNodeWithText("좌석 비움 관측").assertIsDisplayed()
+        compose.onNodeWithText("현재 좌석 상태 미확인").assertIsDisplayed()
+        compose.onNodeWithText("현재 좌석 감지됨").assertDoesNotExist()
+        compose.onNodeWithText("관측 좌석 비움").assertDoesNotExist()
+        assertQuietCabin()
+    }
+
+    @Test fun quietLatchSuppressesDrivingPromptsAfterSeatReadingsBecomeStale() {
+        compose.setContent {
+            SafetyStepTheme(ThemePreference.DARK) {
+                DrivingContent(PrototypeUi(incident = incident.respond(Responder.UNKNOWN, HelpState.NEEDS_HELP),
+                    cabinClearConfirmed = true, drivingRestricted = true, now = 90_000L,
+                    vehicle = VehicleSnapshot(seats = listOf(SeatObservation(1, "운전석", VehicleReading(false, 50_000L))))))
+            }
+        }
+        compose.onNodeWithText("좌석 비움 관측").assertIsDisplayed()
+        compose.onNodeWithText("현재 좌석 상태 미확인").assertIsDisplayed()
+        compose.onNodeWithText("도움 요청 기록 있음").assertIsDisplayed()
+        compose.onNodeWithText("안전하게 정차해주세요").assertDoesNotExist()
+        compose.onNodeWithText("무리하게 움직이지 마세요").assertDoesNotExist()
+        compose.onNodeWithText("관측 좌석 비움").assertDoesNotExist()
+        assertQuietCabin()
+    }
+
+    @Test fun restrictedStoppedViewUsesSharedExitPassengerMotionAndHelpPriorityWithoutTouchTasks() {
+        val state = mutableStateOf(PrototypeUi(incident = incident, supportQualified = true, drivingRestricted = true,
+            now = 50_000L, vehicle = VehicleSnapshot(speedMps = VehicleReading(0f, 50_000L))))
+        compose.setContent {
+            SafetyStepTheme(ThemePreference.LIGHT) {
+                Box(Modifier.size(544.dp, 732.dp)) { DrivingContent(state.value) }
+            }
+        }
+        fun assertTouchFree() {
+            compose.onAllNodes(hasClickAction()).assertCountEquals(0)
+            compose.onAllNodes(SemanticsMatcher.keyIsDefined(SemanticsActions.ScrollBy)).assertCountEquals(0)
+            compose.onNodeWithTag("passenger-help-cue").assertDoesNotExist()
+        }
+        compose.onNodeWithText("안전한 곳으로 이동하세요").assertIsDisplayed()
+        compose.onNodeWithText(CabinGuidance.EXIT).assertIsDisplayed()
+        compose.onNodeWithText("안전하게 정차해주세요").assertDoesNotExist()
+        assertTouchFree()
+        compose.runOnIdle { state.value = state.value.copy(occupiedSeatAreas = setOf(1, 4),
+            vehicle = state.value.vehicle.copy(seats = listOf(
+                SeatObservation(1, "운전석", VehicleReading(false, 50_000L)),
+                SeatObservation(4, "동승석", VehicleReading(true, 50_000L)),
+            ))) }
+        compose.onNodeWithText("동승 좌석 감지됨").assertIsDisplayed()
+        compose.onNodeWithText(CabinGuidance.PASSENGER).assertIsDisplayed()
+        assertTouchFree()
+        compose.runOnIdle { state.value = state.value.copy(vehicle = state.value.vehicle.copy(speedMps = VehicleReading(10f, 50_000L))) }
+        compose.onNodeWithText("안전하게 정차해주세요").assertIsDisplayed()
+        compose.onNodeWithText(CabinGuidance.PASSENGER).assertDoesNotExist()
+        assertTouchFree()
+        compose.runOnIdle { state.value = state.value.copy(incident = incident.respond(Responder.PASSENGER, HelpState.NEEDS_HELP)) }
+        compose.onNodeWithText("무리하게 움직이지 마세요").assertIsDisplayed()
+        compose.onNodeWithText("안전하게 정차해주세요").assertDoesNotExist()
+        assertTouchFree()
+        compose.runOnIdle { state.value = state.value.copy(cabinClearConfirmed = true) }
+        compose.onNodeWithText("좌석 비움 관측").assertIsDisplayed()
+        compose.onNodeWithText("도움 요청 기록 있음").assertIsDisplayed()
+        compose.onNodeWithText("무리하게 움직이지 마세요").assertDoesNotExist()
+        assertTouchFree()
     }
 
     @Test fun reportResponseAgeDoesNotClaimProviderFixFreshness() {
