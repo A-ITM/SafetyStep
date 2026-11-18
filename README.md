@@ -2,45 +2,64 @@
 
 세이프티스탭은 고속도로 사고 후 탑승자에게 대피와 도움 요청 방법을 안내하는 Pleos Connect 앱입니다. 사고 차량이 위치를 공유하면, 주변 위험 알림을 켠 다른 차량에서 **주변 사고**와 사고 지점까지의 직선거리를 볼 수 있습니다. 현재 버전은 에뮬레이터에서 사용하는 프로토타입입니다.
 
-## 앱 열기
+## 1. 실행 환경 준비하기
 
-| 사용 목적 | 실행할 앱 | 준비물 |
-| --- | --- | --- |
-| 사고 후 안내 화면 둘러보기 | **세이프티스탭 Demo** | Android 에뮬레이터. 계정이나 서버 없이 시작할 수 있습니다. 차량 상태는 샘플로 표시되며 안내는 화면으로 확인합니다. |
-| 사고 위치를 공유하고 다른 차량에서 확인하기 | **세이프티스탭**(차량 A)과 **세이프티스탭 Demo**(차량 B) | Pleos Connect 2.1 에뮬레이터 한 대, 두 앱, 아래의 서버 연결 방법 중 하나 |
+**처음부터 차량 간 사고 공유까지 사용하려면 Pleos 에뮬레이터 한 대를 준비하세요.** 같은 에뮬레이터에서 사고 차량 앱과 주변 차량 앱을 번갈아 엽니다. 이미 Pleos 차량 홈이 열려 있다면 2단계부터 시작하세요.
 
-이미 설치했다면 에뮬레이터의 앱 목록에서 해당 이름을 선택하세요. Pleos에서는 정차 상태에서 우측 앱 패널을 사용합니다. 창을 넓히라는 안내가 보이면 내비게이션과 앱 사이의 경계선을 왼쪽으로 끌어주세요.
+1. 컴퓨터에 Android Studio를 설치하고 처음 실행할 때 설정 마법사에서 Android SDK 설치를 마칩니다. [Android Studio 설치 및 시스템 요구사항](https://developer.android.com/studio/install)
+2. 시작 화면에서 **More Actions → SDK Manager**를 엽니다. 프로젝트를 연 상태에서는 **Tools → SDK Manager**를 선택하세요. **SDK Tools** 탭에서 **Android Emulator**와 **Android SDK Platform-Tools**를 선택하고 **Apply**를 누릅니다. 창 위쪽의 **Android SDK Location**이 SDK 설치 경로입니다.
+3. **SDK Update Sites → +**에서 이름을 `Pleos Connect System Image`로 입력하고, 컴퓨터에 맞는 아래 주소를 등록합니다.
+
+   | 환경 | SDK Update Site에 붙여 넣을 주소 |
+   | --- | --- |
+   | Apple Silicon Mac | `https://nexus-playground.pleos.ai/repository/raw-releases/connect-avd/2.x/crp-arm64-sys-img.xml` |
+   | Windows / Linux (x86-64) | `https://nexus-playground.pleos.ai/repository/raw-releases/connect-avd/2.x/crp-sys-img.xml` |
+
+4. **SDK Platforms → Show Package Details**에서 **Android 14 (API 34)** 아래의 **Pleos Connect** 시스템 이미지를 설치한 뒤 Android Studio를 다시 엽니다.
+5. 시작 화면에서 **More Actions → Virtual Device Manager → Create Virtual Device**를 엽니다. **Automotive → Pleos Connect v2.1.0**과 방금 받은 API 34 이미지를 선택합니다. 고급 설정에서 RAM을 **4 GB**, 부팅 방식을 **Cold**로 지정하고 **Finish → ▶**를 누릅니다. **차량 홈 화면이 뜨면 준비가 끝났습니다.** [Pleos 에뮬레이터 설치 화면 안내](https://document.pleos.ai/docs/connect/guide/getting-started/application-development/setup-connect-sdk-emulator)
+
+**사고 안내 화면만 둘러보려면** 2번까지 진행한 뒤 일반 Android 에뮬레이터를 사용해도 됩니다. Virtual Device Manager에서 **Phone**과 API 28 이상의 이미지를 선택해 실행하고, 다음 단계에서 **세이프티스탭 Demo**만 설치하세요. Demo의 차량 상태는 샘플이며, 사고 안내는 화면으로 확인할 수 있습니다. [Android 가상 기기 만들기](https://developer.android.com/studio/run/managing-avds)
+
+## 2. 앱 설치하고 열기
+
+1. GitHub에 로그인한 뒤 앱 빌드 목록에서 성공한 최신 실행을 엽니다. 아래쪽 **Artifacts → debug-apks-…**를 내려받아 압축을 풉니다. [앱 빌드 목록](https://github.com/A-ITM/SafetyStep/actions/workflows/ci.yml?query=branch%3Amain)
+2. 아래 APK를 실행 중인 에뮬레이터 창에 끌어다 놓습니다. 두 차량을 사용할 때는 두 파일을 모두 같은 창에 설치합니다.
+
+   | 앱 목록에 표시되는 이름 | 압축 안의 파일 | 용도 |
+   | --- | --- | --- |
+   | **세이프티스탭 Demo** | `demo/debug/app-demo-debug.apk` | 사고 안내 화면 둘러보기, 주변 차량 B에서 사고 수신 |
+   | **세이프티스탭** | `pleos/debug/app-pleos-debug.apk` | 사고 차량 A에서 차량 상태 확인과 사고 위치 공유 |
+
+3. 에뮬레이터의 앱 목록에서 **세이프티스탭 Demo**를 엽니다. 정차 상태에서 **안전운전 하세요**와 **사고 도움받기** 버튼이 보이면 다음 단계로 넘어가세요. Pleos에서 창을 넓히라는 안내가 나오면 내비게이션과 우측 앱 패널 사이의 경계선을 왼쪽으로 끌어주세요.
 
 <details>
-<summary>처음 설치하기</summary>
+<summary>APK 다운로드 기간이 지났거나 소스에서 직접 설치할 때</summary>
 
-1. Android Studio의 **Device Manager**에서 에뮬레이터를 실행합니다. Demo 화면만 보려면 일반 Android 에뮬레이터(API 28 이상)에서도 시작할 수 있습니다. 차량 상태와 음성을 함께 사용하려면 [Pleos 에뮬레이터 설정](docs/development.md#pleos-에뮬레이터)을 따르세요.
-2. GitHub에 로그인하고 [앱 빌드 목록](https://github.com/A-ITM/SafetyStep/actions/workflows/ci.yml?query=branch%3Amain)에서 성공한 최신 실행을 엽니다. **Artifacts → debug-apks-…**를 내려받아 압축을 풉니다.
-3. `demo/debug/app-demo-debug.apk`를 실행 중인 에뮬레이터 창에 끌어다 놓습니다. 차량 간 공유도 보려면 `pleos/debug/app-pleos-debug.apk`를 같은 창에 설치합니다. 앱 목록에 **세이프티스탭 Demo**와 **세이프티스탭**이 각각 나타납니다.
-
-빌드 파일의 보관 기간은 7일입니다. 직접 빌드하려면 저장소를 복제하고 Android Studio에서 `android/`를 연 뒤 기존 JDK 17을 선택합니다. **Build Variants**에서 `demoDebug` 또는 `pleosDebug`를 선택하고 실행(▶)하면 해당 앱이 설치됩니다. [빌드 환경](docs/development.md#android-studio)
+GitHub의 빌드 파일은 7일간 보관됩니다. 직접 빌드할 때는 이 저장소를 내려받아 Android Studio에서 `android/`를 엽니다. SDK Manager에서 **Android SDK Platform 35**와 **Build Tools 35.0.0**을 설치하고 Gradle JDK로 **JDK 17**을 선택합니다. Gradle Sync가 끝나면 **Build Variants**에서 `demoDebug` 또는 `pleosDebug`를 고르고 실행 대상 에뮬레이터를 선택해 ▶를 누릅니다. 두 앱이 필요하면 다른 빌드도 같은 방법으로 실행합니다. [소스 빌드 환경](docs/development.md#android-studio)
 
 </details>
 
-## 사고 차량 화면 사용하기
+## 3. 사고 차량 화면 사용하기
 
 1. 정차 상태의 홈 화면에서 **사고 도움받기**를 누릅니다. 일반 정차만으로는 사고가 등록되지 않습니다.
 2. **사고 후 안전 지원**에서 차량 상태와 첫 안내를 확인합니다. 정지가 확인되면 대피와 안전한 곳에서 휴대전화로 신고하는 순서를 안내합니다. Pleos에서 음성이 가능하면 첫 안내를 읽어줍니다. 안내를 계속 듣기 위해 버튼을 누를 필요는 없습니다.
 3. 도움이 필요할 때 **움직이기 어려워요**를 누르면 도움 안내로 바뀝니다. Pleos에서는 첫 안내 뒤 음성으로도 도움을 요청할 수 있습니다. **119 전화 열기**는 전화 앱을 엽니다. 통화는 사용자가 직접 시작합니다.
 4. 좌석에 탑승 신호가 남으면 해당 좌석이 표시됩니다. 탑승 이력이 있는 상태에서 관측한 좌석 전체가 3초간 비어 있으면 실내 음성과 마이크가 멈춥니다. 사고 위치 공유는 별도로 유지됩니다.
 
-## 다른 차량에서 주변 사고 확인하기
+## 4. 다른 차량에서 주변 사고 확인하기
 
 **A에서 ‘서버 등록 완료’를 확인한 뒤 B로 전환**하세요. 에뮬레이터 한 대에서는 두 앱이 같은 기기의 GPS를 사용하므로, 이 순서대로 위치를 바꾸면 A의 사고 지점과 B의 현재 위치를 구분할 수 있습니다.
 
-### 1. 두 앱을 같은 서버에 연결하기
+### 두 앱을 같은 서버에 연결하기
+
+터미널에서 `adb devices`를 실행합니다. 목록에 `emulator-5554   device`처럼 표시되면 컴퓨터와 에뮬레이터가 연결된 것입니다. 아래 모든 명령에서 `emulator-5554`를 실제 번호로 바꾸세요. 명령을 찾을 수 없으면 1단계에서 확인한 SDK 설치 경로 아래의 `platform-tools`를 PATH에 추가하고 터미널을 다시 엽니다.
 
 새로 설치한 두 앱은 기본으로 **로컬 시험**을 사용합니다. 계정 없이 진행하려면 로컬 서버를 선택하세요. 이미 두 앱에 **클라우드 파일럿**이 설정돼 있다면 세션 유효 시간을 확인하고 다음 단계로 넘어가세요.
 
 <details>
 <summary>로컬 서버 사용하기 · 계정 없이 같은 컴퓨터에서 실행</summary>
 
-저장소를 처음 받는다면 아래 명령으로 내려받습니다. 이미 받았다면 기존 저장소 폴더에서 진행하세요.
+이 단계에는 Git과 Deno 또는 Node.js(`npx`)가 필요합니다. macOS·Linux는 터미널, Windows는 Git Bash에서 실행하세요. 이미 저장소를 받았다면 해당 폴더에서 마지막 명령만 실행합니다. [Git 설치](https://git-scm.com/install/) · [Node.js 설치](https://nodejs.org/en/download)
 
 ```sh
 git clone https://github.com/A-ITM/SafetyStep.git
@@ -48,10 +67,9 @@ cd SafetyStep
 ./scripts/run-prototype-server.sh
 ```
 
-서버 터미널은 열어 둡니다. 실행에는 Deno 또는 Node.js의 `npx`가 필요합니다. 다른 터미널에서 Android SDK의 `adb`로 에뮬레이터를 연결합니다. 아래 예시의 `emulator-5554`는 `adb devices`에 표시된 에뮬레이터 번호로 바꿔주세요. `adb` 명령을 찾을 수 없으면 Android SDK의 `platform-tools` 폴더를 PATH에 추가합니다.
+서버 터미널은 열어 두고, 새 터미널에서 에뮬레이터의 8787 포트를 방금 실행한 서버에 연결합니다.
 
 ```sh
-adb devices
 adb -s emulator-5554 reverse tcp:8787 tcp:8787
 ```
 
@@ -66,7 +84,7 @@ adb -s emulator-5554 reverse tcp:8787 tcp:8787
 
 </details>
 
-### 2. 사고 지점과 주변 차량 위치 바꾸기
+### 사고 지점과 주변 차량 위치 바꾸기
 
 앞에서 Demo의 사고 안내를 열어보았다면 **설정 → 개발 도구 → 시험 상태 초기화**로 홈에 돌아오세요. 정차 상태에서 두 앱의 **설정 → 위치 권한 설정**으로 들어가 **정확한 위치**를 앱 사용 중 허용합니다. 권한이 이미 있으면 이 버튼은 생략됩니다. **A의 ‘위험 위치 공유 동의’**는 사고를 보내는 설정이고, **B의 ‘주변 위험 알림’**은 사고를 받는 설정입니다.
 
