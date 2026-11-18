@@ -3,13 +3,14 @@
 고속도로 사고 후 **탑승자가 안전하게 차 밖으로 이동하도록 돕고, 다른 차량이 주변 사고 위치를 확인하도록 지원**하는 Pleos Connect 개발 프로토타입입니다. 사고 후 질문이나 다음 버튼을 반복하는 대신 첫 행동을 음성으로 안내하고, 도움 요청·차량 관측·사고 위치 공유를 한 화면에서 다룹니다.
 
 - 저장소: [A-ITM/SafetyStep](https://github.com/A-ITM/SafetyStep)
-- 현재 개발 범위: **0.7 / 전면 실행 에뮬레이터 + Android GPS·NaviHelper 위치 + 로컬 HTTP·JSON 저장 서버**
+- 현재 개발 범위: **전면 실행 에뮬레이터 · Android GPS/NaviHelper · 차량 두 대용 Supabase 파일럿과 로컬 개발 서버**
+- [Supabase 프로젝트와 차량 간 사고 공유](docs/backend.md) · [시험 차량 연결 방법](docs/pilot-cloud-android.md)
 - [사고 차량의 하차 전후 흐름과 검수 기준](docs/cabin-exit-flow.md)
 - [0.7 사고 위치 계약](docs/contracts/accident-location-v07.md) · [0.7 검수 기록](docs/safetystep-v07-validation.md) · [장기 개발 계획 1.3](docs/safetystep-execution-plan.md)
 - 이전 0.6: [구현 계획](docs/safetystep-prototype-v06-plan.md) · [TEST 정차 전파 계약과 예제](docs/contracts/prototype-v06.md)
 - [인포테인먼트 UI·디자인 시스템 개선](docs/safetystep-infotainment-ui-review.md): 기존 Figma의 네이비 패널·좌석도를 기준으로 주행 경고를 단순화하고, 정차 후 도움 동작을 화면 하단에 고정했습니다.
 
-실제 사고 대응용 배포 앱이 아닙니다. 도로·진행 방향 매칭, 실차 자동 사고 기동, 공공 돌발정보, 운영 인증/DB는 이번 범위에 포함하지 않습니다. 입력 출처와 SDK 성공·미지원·시험 값을 구분합니다.
+실제 사고 대응용 배포 앱이 아닙니다. Supabase 접속 권한은 시험 차량 두 대에 한정합니다. 도로·진행 방향 매칭, 실차 자동 사고 기동, 공공 돌발정보는 향후 개발 범위입니다. 입력 출처와 SDK 성공·미지원·시험 값을 구분합니다.
 
 ## 이번 버전에서 확인하는 세 흐름
 
@@ -37,14 +38,14 @@
 | 음성 | Pleos debug에서 실제 TTS/STT. 첫 안내 완료 후 예외 청취. 실제 시작/완료 콜백으로 기록. demo는 음성 미지원 |
 | 위치 조회 | 실제 Android GPS 우선, 사용할 수 없으면 Pleos NaviHelper로 대체. 출처 GPS/NAVI/TEST, 수신 시각·측위 시각·정확도·모의 위치 여부 구분. 없는 정확도·주소·도로 방향을 만들지 않음 |
 | 사고 위치 고정 | 사고 입력 15초 전~30초 후에 받은 유효한 위치 한 번을 고정. 유효한 위치가 없으면 전송 보류. 뒤늦게 이동한 현재 위치로 사고 지점을 옮기지 않음. 신고 참고 위치도 해당 사고 위치 사용 |
-| 서버 | loopback Deno 서버. 사고를 로컬 JSON에 원자적으로 저장한 뒤 ACK하며 재시작 후 복원. 주변 조회는 Haversine 직선 반경 1,000m, 자기 사건 제외. 수신 차량의 조회 위치는 저장하지 않음 |
-| 사건 수명 | 사고별 본문을 앱 로컬 outbox에 고정해 같은 ID로 재시도. 사고 300초 TTL은 해결을 뜻하지 않으며 최신 상태 미확인으로 표시. 종료는 별도 시험 관리자 요청으로만 수행 |
+| 서버 | 파일럿 차량에서 Supabase Auth → Edge Function → Postgres로 등록·조회. 로컬 개발 모드에서는 Deno와 JSON 파일 사용. 반경 1,000m 안의 타 차량 사고를 조회하고 수신 차량의 위치는 저장하지 않음 |
+| 사건 수명 | 사고별 본문을 앱 로컬 outbox에 고정해 같은 ID로 재시도. 사고 300초 TTL은 해결을 뜻하지 않으며 최신 상태 미확인으로 표시. 클라우드 조회에서는 유효 시간이 지난 사고를 제외. 로컬 시험 서버에서는 관리자가 별도로 종료 가능 |
 | 수신 설정 | 공유 동의와 별개, 처음에는 OFF. 설정 저장. 앱이 전면에서 벗어나면 PAUSED. 위치/연결이 없으면 정상 수신으로 표시하지 않음 |
 | 위치 권한 | 정차 중 설정에서 Android 위치 권한 요청. 위치 조회·전송·수신은 전면 실행 범위. 주행 중 자동 권한 창이나 백그라운드 위치 권한 사용 없음 |
 | 이전 TEST 경로 | 0.6 TEST 도로 기반 정차 관측·전방 경고는 개발 도구와 회귀 시험용. 일반 정차를 사고로 등록하거나 정상 화면의 GPS 사고 경고로 대체하지 않음 |
-| 아직 제외 | 운영 Auth/DB/공공 API, 전국 도로 매칭, 백그라운드 자동 기동, 자동 신고, 감속 재경고, 연구/MAU 도구 |
+| 아직 제외 | 일반 사용자 가입·공공 API, 전국 도로 매칭, 백그라운드 자동 기동, 자동 신고, 감속 재경고, 연구/MAU 도구 |
 
-A/B와 관리자 Bearer 문자열은 공개 **시험 식별자**입니다. 인증 기능이 아니며 서버를 외부에 공개하면 안 됩니다. 공유 payload에는 응답·좌석·도움 상태·음성 원문을 넣지 않습니다.
+로컬 개발 서버는 공개된 A/B·관리자 시험 식별자를 사용하므로 루프백에서 실행합니다. 클라우드에서는 차량마다 별도의 Supabase Auth 계정으로 로그인하고 서버가 허용한 두 계정에만 사고 API 접근을 허가합니다. 공유 payload에는 응답·좌석·도움 상태·음성 원문을 넣지 않습니다.
 
 ## 개발 환경과 실행
 
@@ -54,7 +55,7 @@ A/B와 관리자 Bearer 문자열은 공개 **시험 식별자**입니다. 인�
 | 빌드 | 기존 JDK 17 / Gradle 8.10.2 / AGP 8.8.2 |
 | SDK | Vehicle 2.3.2 / NaviHelper 3.0.5 / TTS·STT 3.3.1 |
 | 대상 | Pleos Connect 2.1 AVD, Android 14 arm64 |
-| 서버 | Deno 2.9.6 / loopback 8787 |
+| 서버 | Supabase 서울 리전 파일럿 / 로컬 Deno 2.9.6 (8787) |
 
 ```sh
 git clone https://github.com/A-ITM/SafetyStep.git
@@ -83,11 +84,13 @@ ADB="$HOME/Library/Android/sdk/platform-tools/adb"
 
 ```sh
 ./scripts/check-android.sh
-npx --yes deno@2.9.6 fmt --check supabase/functions supabase/local
-npx --yes deno@2.9.6 lint supabase/functions supabase/local
-npx --yes deno@2.9.6 check --config supabase/functions/deno.json supabase/functions/health/index.ts supabase/local/serve-prototype.ts supabase/functions/_shared/prototype_test.ts supabase/functions/_shared/accident_test.ts supabase/functions/_shared/accident_repository_test.ts
+npx --yes deno@2.9.6 fmt --check supabase/functions supabase/local supabase/tests
+npx --yes deno@2.9.6 lint supabase/functions supabase/local supabase/tests
+npx --yes deno@2.9.6 check --config supabase/functions/deno.json supabase/functions/accidents/index.ts supabase/functions/health/index.ts supabase/local/serve-prototype.ts supabase/functions/_shared/prototype_test.ts supabase/functions/_shared/accident_test.ts supabase/functions/_shared/accident_repository_test.ts
 npx --yes deno@2.9.6 test --allow-read=docs/contracts/fixtures/prototype-v06.json --config supabase/functions/deno.json supabase/functions/_shared/prototype_test.ts
 npx --yes deno@2.9.6 test --allow-read=docs/contracts/fixtures/accident-v07.json,output/prototype-accident-tests --allow-write=output/prototype-accident-tests --config supabase/functions/deno.json supabase/functions/_shared/accident_test.ts supabase/functions/_shared/accident_repository_test.ts
+npx --yes deno@2.9.6 test --frozen --config supabase/tests/deno.json --allow-read=docs/contracts/fixtures/accident-v07.json,supabase/migrations,supabase/tests/node_modules supabase/tests/
+python3 -m unittest discover -s scripts/tests -p test_provision_pilot.py
 ```
 
 [0.7 검수 기록](docs/safetystep-v07-validation.md): 각 flavor 단위 시험 60개·화면 시험 21개, Deno 48개와 빌드/lint가 통과했습니다. 에뮬레이터 GPS→사고 저장→다른 앱 약 300m 수신, 범위 밖 제외, 서버 재시작·종료, Pleos 주행 중 경고 음성 완료를 확인했습니다. `python3 scripts/verify-accident-location-v07.py --serial emulator-5554`는 새 GPS 사고 경로의 화면·연속 시험이며 실행 조건은 검수 기록을 참고하세요. 아래 0.6 시험 수와 시간 측정은 당시 구현에 대한 이력이며, 0.7의 새 위치 경로를 검증한 결과가 아닙니다.
@@ -106,7 +109,7 @@ npx --yes deno@2.9.6 test --allow-read=docs/contracts/fixtures/accident-v07.json
 
 - `android/app/src/main/`: 지원·수신 정책, 상태 저장, 화면, 차량/음성/위치 인터페이스
 - `android/app/src/demo/`, `pleos/`, `pleosDebug/`: 환경별 구현
-- `supabase/`: 0.7 사고 위치 API·로컬 JSON 저장소와 이전 TEST 정차 API
+- `supabase/`: 클라우드 사고 API와 Postgres 마이그레이션, 로컬 JSON 저장소와 이전 TEST 정차 API
 - `docs/contracts/`: Android/서버 공통 계약·fixture
 - `tools/operator-console/`: 기존 콘솔 연결과 **0.5 시나리오·촬영 도구**
 
