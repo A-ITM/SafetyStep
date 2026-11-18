@@ -6,8 +6,8 @@ import org.json.JSONArray
 data class StoredAccident(val event: AccidentEvent, val queued: Boolean, val registered: Boolean = false, val failure: String? = null)
 
 /** Store the immutable location before any network write, keeping retries on the same incident ID. */
-class AccidentStore(context: Context) {
-    private val prefs = context.getSharedPreferences("accident-location-v07", Context.MODE_PRIVATE)
+class AccidentStore(context: Context, preferencesName: String = "accident-location-v07") {
+    private val prefs = context.getSharedPreferences(preferencesName, Context.MODE_PRIVATE)
     val entries = linkedMapOf<String, StoredAccident>()
     var readFailure: Boolean = false
         private set

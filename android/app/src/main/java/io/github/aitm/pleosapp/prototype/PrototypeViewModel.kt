@@ -139,7 +139,7 @@ class PrototypeViewModel(application: Application) : AndroidViewModel(applicatio
     private var supportInputElapsed = mutableMapOf<String, Long>()
     private var firstEvidenceElapsed = mutableMapOf<String, Long>()
     private var reportJob: Job? = null
-    private val accidentCoordinator = AccidentCoordinator(application, viewModelScope, owner) { geo ->
+    private val accidentCoordinator = AccidentCoordinator(application, viewModelScope, owner, restoredIncident?.id) { geo ->
         mutable.update { s ->
             val location = geo.sharedEvent?.location ?: geo.currentLocation
             val reporting = if (s.incident?.eventType != EventType.ACCIDENT) s.reportLocation
@@ -194,6 +194,8 @@ class PrototypeViewModel(application: Application) : AndroidViewModel(applicatio
             put("geoLocation", s.accidentNetwork.currentLocation?.json() ?: JSONObject.NULL)
             put("geoReceiverStatus", s.accidentNetwork.receiverStatus.name)
             put("geoDetail", s.accidentNetwork.detail)
+            put("accidentEnvironment", s.accidentNetwork.environmentLabel)
+            put("accidentEnvironmentDetail", s.accidentNetwork.environmentDetail)
             put("nearbyAccidents", JSONArray(s.accidentNetwork.nearby.map { n -> JSONObject().put("id", n.event.id)
                 .put("distanceMeters", n.distanceMeters ?: JSONObject.NULL).put("freshness", n.freshness.name)
                 .put("eventType", "ACCIDENT").put("location", n.event.location.json()) }))
@@ -501,6 +503,7 @@ class PrototypeViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
     private fun maybeShare() {
+        if (!accidentCoordinator.usesLocalTransport()) return
         if (state.value.incident?.eventType == EventType.ACCIDENT) return
         val p = currentPosition ?: return
         if (!latestStop.qualified || !p.valid(System.currentTimeMillis())) return
@@ -699,8 +702,10 @@ class PrototypeViewModel(application: Application) : AndroidViewModel(applicatio
         voiceAttempts.clear()
         if (BuildConfig.DEBUG) {
             vehicleJob = viewModelScope.launch { while (foreground) { readVehicleFacts(); updateSupportQualification(); evaluateReceiver(); delay(500) } }
-            uploaderJob = viewModelScope.launch { uploadLoop() }
-            receiverJob = viewModelScope.launch { receiveLoop() }
+            if (accidentCoordinator.usesLocalTransport()) {
+                uploaderJob = viewModelScope.launch { uploadLoop() }
+                receiverJob = viewModelScope.launch { receiveLoop() }
+            }
         }
         updateSupportQualification(); evaluateReceiver()
     }

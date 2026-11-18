@@ -127,7 +127,7 @@ fun SafetyStepApp(model: PrototypeViewModel, diagnostics: @Composable () -> Unit
 @Composable internal fun RoadNotice(s: PrototypeUi) = StopReportCard(s)
 
 @Composable internal fun StopReportCard(s: PrototypeUi) {
-    if (s.incident?.eventType == EventType.ACCIDENT || s.stopReportStatus == StopReportStatus.NONE) return
+    if (!s.accidentNetwork.legacyTransportEnabled || s.incident?.eventType == EventType.ACCIDENT || s.stopReportStatus == StopReportStatus.NONE) return
     val c = LocalSafetyColors.current
     val message = when (s.stopReportStatus) {
         StopReportStatus.NONE -> ""
@@ -344,6 +344,9 @@ internal fun preferredNearbyAccident(events: List<NearbyAccident>): NearbyAccide
     }
     val c = LocalSafetyColors.current
     SafetyDialog("설정", close) {
+        Text(s.accidentNetwork.environmentLabel, style = SafetyStepTokens.label, color = c.secondary)
+        if (s.accidentNetwork.environmentDetail.isNotBlank()) Text(s.accidentNetwork.environmentDetail,
+            style = SafetyStepTokens.caption, color = c.secondary)
         ReceiverSettings(s, model)
         CheckLine("위험 위치 공유 동의", s.consent, model::setConsent, "share")
         Text("공유 동의는 주변 알림 수신과 별개예요.", style = SafetyStepTokens.caption, color = LocalSafetyColors.current.secondary)

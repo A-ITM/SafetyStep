@@ -9,11 +9,19 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.json.JSONObject
 
 data class NearbySnapshot(val requestId: String, val serverNow: Long, val events: List<AccidentEvent>)
 
-class AccidentClient(private val owner: String, private val baseUrl: String = "http://127.0.0.1:8787") {
+class AccidentClient(
+    private val owner: String,
+    private val baseUrl: String = "http://127.0.0.1:8787",
+    private val environment: AccidentEnvironment = AccidentEnvironment.Local,
+) {
+    private val identityLock = Mutex()
+    @Volatile private var identityVerified = false
     suspend fun register(event: AccidentEvent, allowed: () -> Boolean = { true }): AccidentEvent {
         val body = request("/prototype/accidents", event.json(), allowed)
         return accidentRegistrationAck(body, event)
@@ -33,33 +41,80 @@ class AccidentClient(private val owner: String, private val baseUrl: String = "h
 
     private suspend fun request(path: String, body: JSONObject, allowed: () -> Boolean = { true }): JSONObject = withContext(Dispatchers.IO) {
         check(BuildConfig.DEBUG); require(owner in setOf("A", "B"))
-        val connection = URL(baseUrl + path).openConnection() as HttpURLConnection
+        environment.requireUsable(System.currentTimeMillis())
+        when (val target = environment) {
+            is AccidentEnvironment.Cloud -> {
+                identityLock.withLock {
+                    if (!identityVerified) {
+                        val identity = exchange("${target.origin}/functions/v1/accidents/session", "GET", null,
+                            target.headers(System.currentTimeMillis()), allowed, cloud = true)
+                        verifyPilotOwner(identity, owner)
+                        identityVerified = true
+                    }
+                }
+                exchange(target.endpoint(path), "POST", body,
+                    target.headers(System.currentTimeMillis()), allowed, cloud = true)
+            }
+            AccidentEnvironment.Local -> exchange(environment.endpoint(path, baseUrl), "POST", body,
+                mapOf("Authorization" to "Bearer prototype-vehicle-$owner"), allowed, cloud = false)
+            is AccidentEnvironment.Blocked -> target.requireUsable(System.currentTimeMillis())
+        }
+    }
+
+    private suspend fun exchange(
+        url: String, method: String, body: JSONObject?, headers: Map<String, String>,
+        allowed: () -> Boolean, cloud: Boolean,
+    ): JSONObject {
+        currentCoroutineContext().ensureActive()
+        if (!allowed()) throw CancellationException("사고 전송 보류")
+        val connection = URL(url).openConnection() as HttpURLConnection
         try {
-            connection.requestMethod = "POST"; connection.instanceFollowRedirects = false
-            connection.connectTimeout = 2000; connection.readTimeout = 2000; connection.doOutput = true
-            connection.setRequestProperty("Authorization", "Bearer prototype-vehicle-$owner")
+            connection.requestMethod = method; connection.instanceFollowRedirects = false
+            connection.connectTimeout = if (cloud) 5000 else 2000
+            connection.readTimeout = if (cloud) 5000 else 2000
+            connection.doOutput = body != null
+            headers.forEach { (name, value) -> connection.setRequestProperty(name, value) }
             connection.setRequestProperty("Content-Type", "application/json")
             connection.setRequestProperty("Cache-Control", "no-store")
             currentCoroutineContext().ensureActive()
             if (!allowed()) throw CancellationException("사고 전송 보류")
-            connection.outputStream.use {
+            if (body != null) connection.outputStream.use {
                 currentCoroutineContext().ensureActive()
                 if (!allowed()) throw CancellationException("사고 전송 보류")
                 it.write(body.toString().toByteArray(Charsets.UTF_8))
             }
             val status = connection.responseCode
             val stream = if (status in 200..299) connection.inputStream else connection.errorStream
-            val text = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
-            require(text.length <= 600_000)
+            val text = stream?.bufferedReader()?.use { reader ->
+                val result = StringBuilder()
+                val buffer = CharArray(4096)
+                while (true) {
+                    currentCoroutineContext().ensureActive()
+                    val count = reader.read(buffer)
+                    if (count < 0) break
+                    require(result.length + count <= 600_000) { "사고 응답 크기 초과" }
+                    result.append(buffer, 0, count)
+                }
+                result.toString()
+            }.orEmpty()
             if (status !in 200..299) {
                 val error = runCatching { JSONObject(text).getJSONObject("error") }.getOrNull()
-                throw HazardHttpException(status, error?.optString("code") ?: "HTTP_ERROR", "HTTP $status: ${error?.optString("message") ?: "사고 위치 통신 실패"}")
+                val code = error?.optString("code")?.takeIf { it.matches(Regex("[A-Z0-9_]{1,80}")) } ?: "HTTP_ERROR"
+                if (cloud && status in setOf(401, 403)) {
+                    identityVerified = false
+                }
+                throw accidentHttpFailure(status, code, cloud)
             }
             require(connection.getHeaderField("Cache-Control")?.split(',')?.any { it.trim().equals("no-store", true) } == true)
-            JSONObject(text)
+            return JSONObject(text)
         } finally { connection.disconnect() }
     }
 }
+
+internal fun accidentHttpFailure(status: Int, code: String, cloud: Boolean): Exception =
+    if (cloud && status in setOf(401, 403)) PilotSessionException("PILOT_AUTH_REQUIRED",
+        "사용자 인증·파일럿 허용 목록 확인 필요 (HTTP $status · $code)")
+    else HazardHttpException(status, code, "HTTP $status · $code · 사고 위치 통신 실패")
 
 internal fun accidentRegistrationAck(body: JSONObject, event: AccidentEvent): AccidentEvent {
     body.exact(setOf("accepted", "duplicate", "event"))

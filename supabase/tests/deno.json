@@ -1,0 +1,8 @@
+{
+  "extends": "../functions/deno.json",
+  "imports": {
+    "@electric-sql/pglite": "npm:@electric-sql/pglite@0.5.16"
+  },
+  "nodeModulesDir": "auto",
+  "lock": "./deno.lock"
+}

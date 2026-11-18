@@ -78,7 +78,7 @@ adb forward tcp:8088 tcp:8088
 
 ### 백엔드
 
-[Supabase 안내](backend.md)에 따라 health 함수를 배포하고 URL을 설정합니다.
+공모전 팀 프로젝트에 배포한 [사고 공유 서버](backend.md)는 [파일럿 연결 절차](pilot-cloud-android.md)로 각 시험 차량에 설정합니다. 개발 화면의 health 확인은 별도의 연결 진단입니다.
 네트워크가 켜진 상태에서 health 응답을 확인한 뒤 네트워크를 끄고 실패가 표시되는지 확인합니다.
 차량 SDK 조회와 서버 연결 버튼은 서로 독립적으로 동작해야 합니다.
 

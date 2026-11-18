@@ -6,3 +6,9 @@ project_id = "pleos-app"
 enabled = true
 verify_jwt = false
 entrypoint = "./functions/health/index.ts"
+
+# The handler also verifies the user with Supabase Auth and applies the two-user allowlist.
+[functions.accidents]
+enabled = true
+verify_jwt = true
+entrypoint = "./functions/accidents/index.ts"
