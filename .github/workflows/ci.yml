@@ -30,6 +30,8 @@ jobs:
         with:
           packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
           log-accepted-android-sdk-licenses: false
+      - name: Check pilot provisioning
+        run: python3 -m unittest discover -s scripts/tests -p test_provision_pilot.py
       - name: Lint and build both flavors
         run: ./scripts/check-android.sh
       - name: Upload development APKs
@@ -57,7 +59,12 @@ jobs:
       - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2
         with:
           deno-version: v2.9.6
-      - run: deno fmt --check supabase/functions supabase/local
-      - run: deno lint supabase/functions supabase/local
-      - run: deno check --config supabase/functions/deno.json supabase/functions/health/index.ts supabase/local/serve-prototype.ts supabase/functions/_shared/prototype_test.ts supabase/functions/_shared/accident_test.ts supabase/functions/_shared/accident_repository_test.ts
+      - run: deno fmt --check supabase/functions supabase/local supabase/tests
+      - run: deno lint supabase/functions supabase/local supabase/tests
+      - run: deno check --config supabase/functions/deno.json supabase/functions/accidents/index.ts supabase/functions/health/index.ts supabase/local/serve-prototype.ts supabase/functions/_shared/prototype_test.ts supabase/functions/_shared/accident_test.ts supabase/functions/_shared/accident_repository_test.ts
       - run: deno test --allow-read=docs/contracts/fixtures/prototype-v06.json,docs/contracts/fixtures/accident-v07.json,output/prototype-accident-tests --allow-write=output/prototype-accident-tests --config supabase/functions/deno.json supabase/functions/_shared/prototype_test.ts supabase/functions/_shared/accident_test.ts supabase/functions/_shared/accident_repository_test.ts
+      - name: Exercise hosted accident handler and PostgreSQL migration
+        run: |
+          deno test --frozen --config supabase/tests/deno.json \
+            --allow-read=docs/contracts/fixtures/accident-v07.json,supabase/migrations,supabase/tests/node_modules \
+            supabase/tests/accident_cloud_test.ts supabase/tests/accident_postgres_test.ts
