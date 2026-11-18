@@ -1,12 +1,12 @@
 # SafetyStep 사고 공유 서버
 
-공모전용 Supabase 조직과 프로젝트 이름은 모두 **SafetyStep**이다. 프로젝트는 서울(`ap-northeast-2`) 리전에서 실행된다. 파일럿 차량 두 대는 같은 HTTPS 서버를 사용한다. [팀 프로젝트 대시보드](https://supabase.com/dashboard/project/gcdcnuutczpjdaunaigt)
+Supabase 조직과 프로젝트 이름은 모두 **SafetyStep**이다. 프로젝트는 서울(`ap-northeast-2`) 리전에서 실행된다. 파일럿 차량 두 대는 같은 HTTPS 서버를 사용한다. [팀 프로젝트 대시보드](https://supabase.com/dashboard/project/gcdcnuutczpjdaunaigt)
 
 | 순서 | 차량과 서버가 하는 일 |
 | --- | --- |
 | 1 | 공유 동의를 켠 사고 차량 A가 사고 시점의 유효한 GPS 또는 내비 위치를 등록한다. |
 | 2 | Edge Function이 Supabase Auth로 사용자 신원을 확인하고 허용된 차량과 대조한다. Postgres에 사건이 저장되어야 앱이 등록 완료를 표시한다. |
-| 3 | 위험 알림을 켠 차량 B가 자신의 현재 위치로 조회한다. 서버는 직선거리 1km 이내의 유효한 타 차량 사고를 반환한다. B 앱은 주변 사고와 약 거리를 표시한다. |
+| 3 | 위험 알림을 켠 차량 B가 자신의 현재 위치로 조회한다. 서버는 직선거리 1km 이내의 유효한 타 차량 사고를 반환한다. B 앱은 주변 사고와 사고 지점까지의 대략적인 거리를 표시한다. |
 | 4 | B가 범위를 벗어나 정상 조회 결과에서 사건이 사라지면 B의 해당 안내를 내린다. A의 하차와 B의 이탈은 도로 사건을 해소하는 근거로 사용하지 않는다. |
 
 앱에 파일럿 사용자 세션을 설정하면 클라우드에 연결한다. 기본 설치는 기존 `adb reverse` 기반 로컬 시험을 지원한다. 계정과 서버가 바뀌어도 이전 서버의 전송 대기열이나 등록 확인을 새 서버에 가져가지 않는다. [Android 시험 차량 준비](pilot-cloud-android.md)
