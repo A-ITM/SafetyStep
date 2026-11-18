@@ -47,6 +47,9 @@ data class AccidentNetworkUi(
     val receiverStatus: ReceiverStatus = ReceiverStatus.OFF,
     val detail: String = "",
     val locationPermissionNeeded: Boolean = false,
+    val environmentLabel: String = "로컬 시험",
+    val environmentDetail: String = "",
+    val legacyTransportEnabled: Boolean = true,
 )
 
 fun accidentDistance(a: AccidentLocation, b: AccidentLocation): Double {

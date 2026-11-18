@@ -10,11 +10,13 @@ import kotlinx.coroutines.*
 /** Foreground prototype transport; local occupant support never waits for these jobs. */
 class AccidentCoordinator(
     context: Context, private val scope: CoroutineScope, private val owner: String,
+    private val restoredIncidentId: String? = null,
     private val onState: (AccidentNetworkUi) -> Unit,
 ) : AutoCloseable {
     private val gateway = AccidentLocationGatewayFactory.create(context)
-    private val store = AccidentStore(context)
-    private val client = AccidentClient(owner)
+    private val environment = AccidentEnvironment.read(context, owner)
+    private val store = AccidentStore(context, environment.storeName)
+    private val client = AccidentClient(owner, environment = environment)
     private var incident: Incident? = null
     @Volatile private var foreground = false
     @Volatile private var consent = false
@@ -54,6 +56,7 @@ class AccidentCoordinator(
     }
 
     fun refresh() { refreshRequested = true; publish() }
+    fun usesLocalTransport(): Boolean = environment == AccidentEnvironment.Local
     fun testLocation(value: AccidentLocation?) {
         testOverride = true; acceptLocation(value); capture(); publish()
     }
@@ -70,6 +73,8 @@ class AccidentCoordinator(
 
     private fun capture() {
         val session = incident ?: return
+        // A restored support session with no record in this target cannot acquire a new destination.
+        if (!mayCaptureAccident(environment, session.id, restoredIncidentId, session.id in store.entries)) return
         if (store.readFailure || localFailure) return
         try {
             val prior = store.entries[session.id]
@@ -144,8 +149,12 @@ class AccidentCoordinator(
         val now = System.currentTimeMillis()
         val current = latest?.takeIf { it.current(now) }
         val entry = incident?.id?.let(store.entries::get)
+        val restoredWithoutTarget = environment is AccidentEnvironment.Cloud && incident?.id != null &&
+            incident?.id == restoredIncidentId && entry == null
         val sharing = when {
             incident == null -> AccidentShareStatus.IDLE
+            environment is AccidentEnvironment.Blocked -> AccidentShareStatus.FAILED
+            restoredWithoutTarget -> AccidentShareStatus.FAILED
             store.readFailure || localFailure -> AccidentShareStatus.FAILED
             entry?.registered == true && entry.event.expiresAt <= now -> AccidentShareStatus.EXPIRED
             entry?.registered == true -> AccidentShareStatus.REGISTERED
@@ -169,7 +178,9 @@ class AccidentCoordinator(
                 serverNow >= event.expiresAt -> EventFreshness.STALE
                 else -> EventFreshness.FRESH
             }) }.filter { it.distanceMeters == null || it.distanceMeters <= 1000 }
-        onState(AccidentNetworkUi(sharing, entry?.event, current, nearby, status, detail, gateway.needsPermission()))
+        val shownDetail = if (restoredWithoutTarget) "연결 전 지원 세션은 이 서버에 새로 전송하지 않아요. 새 시험을 시작해주세요" else detail
+        onState(AccidentNetworkUi(sharing, entry?.event, current, nearby, status, shownDetail, gateway.needsPermission(),
+            environment.label, environment.diagnostic(now), usesLocalTransport()))
     }
 
     override fun close() { locationJob?.cancel(); uploadJob?.cancel(); receiveJob?.cancel(); gateway.close() }
