@@ -6,7 +6,7 @@
 
 ## 결론과 확인 범위
 
-현대모비스의 생체신호 측정·운전자 모니터링 기술은 공식 발표로 확인된다. 다만 현재 프로젝트의 Pleos Vehicle SDK 2.3.2에서 심박·호흡·뇌파·눈 감김 시간·시선 좌표를 읽는 공개 도메인 API는 찾지 못했다. 제조사의 센서 기술, 특정 차량의 탑재 여부, 외부 앱의 접근 권한은 별개다.
+스마트캐빈과 ICM 기술 발표에서 생체신호 측정·운전자 모니터링 기능을 확인했다. 다만 현재 프로젝트의 Pleos Vehicle SDK 2.3.2에서 심박·호흡·뇌파·눈 감김 시간·시선 좌표를 읽는 공개 도메인 API는 찾지 못했다. 제조사의 센서 기술, 특정 차량의 탑재 여부, 외부 앱의 접근 권한은 별개다.
 
 초기 조사는 공식 문서와 설치된 SDK AAR의 공개 클래스·메서드·상수 확인이다. 이후 세이프티스탭 UI 구현 과정에서 아래의 에뮬레이터 조회를 추가 검증했다. API 또는 enum의 존재만을 차량·에뮬레이터 지원의 증거로 사용하지 않는다.
 
@@ -33,8 +33,8 @@ SDK 검색에서 발견된 `VHAL_HEARTBEAT`는 사람의 심박이 아니다. An
 
 ## 공식 기술 발표의 의미
 
-- 현대모비스의 2022년 스마트캐빈 소개에는 3D 카메라, 운전대 심전도 센서, 뇌파 이어셋을 이용하는 구성이 나온다. 센서와 별도 장치가 필요한 기술 소개이며, Pleos 앱에서 공통으로 받을 수 있다는 설명은 아니다.
-- 2025년 ICM 발표는 카메라와 분석 소프트웨어를 통한 자세·행동·생체신호 감지 및 졸음·부주의 경고를 설명한다. 발표 당시 수주 활동을 시작한다는 내용이므로 모든 현대차 탑재 또는 공모전 SDK 공개를 입증하지 않는다.
+- 2022년 스마트캐빈 기술 발표에는 3D 카메라, 운전대 심전도 센서, 뇌파 이어셋을 이용하는 구성이 나온다. 센서와 별도 장치가 필요한 기술 소개이며, Pleos 앱에서 공통으로 받을 수 있다는 설명은 아니다.
+- 2025년 ICM 발표는 카메라와 분석 소프트웨어를 통한 자세·행동·생체신호 감지 및 졸음·부주의 경고를 설명한다. 발표 당시 수주 활동을 시작한다고 밝혔으며, 차종별 탑재 여부와 외부 앱에 제공되는 SDK 범위는 별도 확인이 필요하다.
 - 공식 SDK 릴리즈 노트의 Vehicle 버전은 설치본과 같은 2.3.2다. 문서 버전과 설치 버전의 차이만으로 생체신호 API가 누락됐다고 볼 근거는 찾지 못했다.
 - Virtual Console 가이드에는 Seat Occupancy, Brake Pedal, Telltales 시험 항목이 있다. 공개 가이드에서 생체신호 수치 주입 항목은 찾지 못했다. Telltales 카드 설명만으로 DRIVER_ATTENTION 지원을 확정할 수 없다.
 
@@ -62,8 +62,8 @@ SDK 검색에서 발견된 `VHAL_HEARTBEAT`는 사람의 심박이 아니다. An
 - [Pleos SDK 릴리즈 노트](https://document.pleos.ai/docs/pleos-only/release-note/sdk-release-note)
 - [Safety 공개 API 목록](https://document.pleos.ai/docs/pleos-only/connect-sdk-pleos/Vehicle/vehicle/ai.pleos.playground.vehicle.api/safety/entry)
 - [Virtual Console 가이드](https://document.pleos.ai/docs/pleos-only/app-test-guide/virtual-console-guide)
-- [현대모비스 스마트캐빈 소개, 2022-07-08](https://www.hyundaimotorgroup.com/ko/story/CONT0000000000042227)
-- [현대모비스 ICM 발표, 2025-01-22](https://www.hyundaimotorgroup.com/ko/amp/CONT0000000000168389)
+- [스마트캐빈 통합제어기 기술 발표, 2022-06-23](https://www.mobis.com/kr/aboutus/press.do?category=press&idx=5621)
+- [차량 내 모니터링 시스템(ICM) 기술 발표, 2025-01-22](https://www.mobis.com/en/aboutus/press.do?category=press&idx=6006)
 - [AOSP VHAL 서비스 상태 감시](https://source.android.com/docs/automotive/watchdog/wd_system_health?hl=en)
 
 설치본 확인: `Vehicle:2.3.2`, `vehicle-data:1.1.11`, `vehicle-aidl:1.1.1`. 호스트 JDK 17의 `javap -public`으로 도메인 인터페이스 20개와 관련 모델·상수를 조사했다. 추출한 서명과 검색 결과는 로컬 빌드 산출물 `android/app/build/driver-state-investigation/`에 있다. 새 JDK·Gradle 캐시를 만들지 않았으며 앱 소스·권한·FigJam은 변경하지 않았다.

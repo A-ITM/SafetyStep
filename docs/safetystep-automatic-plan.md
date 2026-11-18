@@ -6,7 +6,7 @@
 
 기획서의 문제는 사고 직후 당황하거나 다친 사람이 안내를 찾아 읽고 화면을 조작하기 어렵다는 것이다. 응답해야만 지원을 시작하거나 비트박스 항목을 사용자가 직접 완료 처리하는 흐름은 문제 정의에 맞지 않는다.
 
-근거: 공모전 수정 기획서, `ui-state-and-theme-spec.md`, `safetystep-demo-audit.md`, FigJam v0.5 [45:614](https://www.figma.com/board/l8dy5wsdyoMRrpzldea2We?node-id=45-614), Figma [S4 1:812](https://www.figma.com/design/QuiuuWbKFqSNjSHQmOKIOX?node-id=1-812), 현재 코드와 에뮬레이터 기록. 비트박스는 [정부 안내](https://www.korea.kr/news/policyNewsView.do?newsId=148931463)를 참고하되 후방 충돌의 트렁크를 무조건 개방하지 않는다.
+근거: 서비스 기획서 개정본, `ui-state-and-theme-spec.md`, `safetystep-demo-audit.md`, FigJam v0.5 [45:614](https://www.figma.com/board/l8dy5wsdyoMRrpzldea2We?node-id=45-614), Figma [S4 1:812](https://www.figma.com/design/QuiuuWbKFqSNjSHQmOKIOX?node-id=1-812), 현재 코드와 에뮬레이터 기록. 비트박스는 [정부 안내](https://www.korea.kr/news/policyNewsView.do?newsId=148931463)를 참고하되 후방 충돌의 트렁크를 무조건 개방하지 않는다.
 
 확인한 차이:
 - 화면 단계와 버튼이 서비스 진행을 막았다. 자동 갱신할 사실과 사람에게 물을 판단을 분리해야 한다.
