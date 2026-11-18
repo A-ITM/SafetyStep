@@ -32,6 +32,8 @@
 
 3. 에뮬레이터의 앱 목록에서 **세이프티스탭 Demo**를 엽니다. 정차 상태에서 **안전운전 하세요**와 **사고 도움받기** 버튼이 보이면 다음 단계로 넘어가세요. Pleos에서 창을 넓히라는 안내가 나오면 내비게이션과 우측 앱 패널 사이의 경계선을 왼쪽으로 끌어주세요.
 
+![Pleos 에뮬레이터의 분할 화면. 차량 상태와 내비게이션 오른쪽에 세이프티스탭 홈과 ‘사고 도움받기’ 버튼이 보입니다.](docs/images/usage/pleos-home.png)
+
 <details>
 <summary>APK 다운로드 기간이 지났거나 소스에서 직접 설치할 때</summary>
 
@@ -101,6 +103,12 @@ adb -s emulator-5554 emu geo fix 127.1946 37.5127  # ① A 사고 지점
 adb -s emulator-5554 emu geo fix 127.1946 37.5154  # ② B 약 300m
 adb -s emulator-5554 emu geo fix 127.1946 37.5277  # ③ B 약 1.67km
 ```
+
+아래는 같은 사고를 두 앱에서 차례로 확인한 화면입니다. 왼쪽에서 A의 등록 결과를, 오른쪽에서 B가 수신한 경고와 거리를 확인하세요.
+
+| 사고 차량 A · 위치 등록 | 주변 차량 B · 사고 수신 |
+| --- | --- |
+| [![A의 사고 후 안전 지원 화면. 사고 위치 공유에 ‘서버 등록 완료’가 표시됩니다.](docs/images/usage/accident-registered.png)](docs/images/usage/accident-registered.png) | [![B의 홈 화면. ‘주변 사고’ 카드에 ‘약 301 m’, 주변 위험 알림에 ‘수신 중’이 표시됩니다.](docs/images/usage/nearby-accident.png)](docs/images/usage/nearby-accident.png) |
 
 경고 범위는 **직선 반경 1km**이며 진행 방향은 판별하지 않습니다. 클라우드에서 사고가 조회되는 시간은 발생 후 **5분**입니다. 그 안에 B로 전환해 주세요. 반경을 벗어나거나 유효 시간이 지나 카드가 내려가도 도로의 사고가 해소됐다는 뜻은 아닙니다.
 
